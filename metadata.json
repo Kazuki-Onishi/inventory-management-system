@@ -1,0 +1,5 @@
+{
+  "name": "Inventory Management System",
+  "description": "A comprehensive Inventory Management System (IMS) built with React and TypeScript, designed to manage stock across multiple stores. It features detailed role-based access control, offline/test mode, bulk data import, and multilingual support.",
+  "requestFramePermissions": []
+}
