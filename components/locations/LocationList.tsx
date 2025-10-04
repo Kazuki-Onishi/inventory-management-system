@@ -1,5 +1,4 @@
-
-import React, { useEffect, useState, useContext } from 'react';
+﻿import React, { useEffect, useState, useContext, useMemo, useCallback } from 'react';
 import { api } from '../../services/api';
 import { Location, Role, SubLocation, NewLocation, NewSubLocation } from '../../types';
 import { useTranslation } from '../../hooks/useTranslation';
@@ -8,7 +7,7 @@ import { AuthContext } from '../../contexts/AuthContext';
 import Card from '../ui/Card';
 import Button from '../ui/Button';
 import { ICONS } from '../../constants';
-import { classNames } from '../../lib/utils';
+import { classNames, getItemDisplayName } from '../../lib/utils';
 import Spinner from '../ui/Spinner';
 import Modal from '../ui/Modal';
 import Input from '../ui/Input';
@@ -106,8 +105,20 @@ const LocationRow: React.FC<{
   };
 
 const LocationList: React.FC = () => {
-  const { t } = useTranslation();
-  const { currentStore, locations: contextLocations, addLocation, addSubLocation, updateLocation, updateSubLocation, deleteLocation, deleteSubLocation } = useContext(AppContext);
+  const { t, language } = useTranslation();
+  const {
+    currentStore,
+    locations: contextLocations,
+    items,
+    stocktakes,
+    addLocation,
+    addSubLocation,
+    updateLocation,
+    updateSubLocation,
+    deleteLocation,
+    deleteSubLocation,
+    removeStocktakes,
+  } = useContext(AppContext);
   const { hasPermission, isOffline } = useContext(AuthContext);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
@@ -117,6 +128,7 @@ const LocationList: React.FC = () => {
   
   const [formData, setFormData] = useState<Partial<NewLocation & NewSubLocation & { parentId: string }>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [assignmentsToRemove, setAssignmentsToRemove] = useState<Set<string>>(new Set());
 
   const fetchAndSetLocations = () => {
     if (!currentStore) {
@@ -143,7 +155,56 @@ const LocationList: React.FC = () => {
   useEffect(() => {
     fetchAndSetLocations();
   }, [currentStore, isOffline, contextLocations]);
-  
+ 
+  const assignmentTargetLabel =
+    modalState?.type === 'edit_sublocation'
+      ? t('locations.assignments.target.sublocation')
+      : t('locations.assignments.target.location');
+
+  const unknownAssignmentLabel = t('locations.assignments.unknownItem');
+
+  const assignmentsForModal = useMemo(() => {
+    if (!modalState) {
+      return [];
+    }
+
+    if (modalState.type === 'edit_location') {
+      return stocktakes
+        .filter(stocktake => stocktake.locationId === modalState.location.id && !stocktake.subLocationId)
+        .map(stocktake => {
+          const item = items.find(candidate => candidate.id === stocktake.itemId);
+          const itemName = getItemDisplayName(item, language) || unknownAssignmentLabel;
+          return { id: stocktake.id, itemName };
+        });
+    }
+
+    if (modalState.type === 'edit_sublocation') {
+      return stocktakes
+        .filter(stocktake => stocktake.locationId === modalState.parentId && stocktake.subLocationId === modalState.subLocation.id)
+        .map(stocktake => {
+          const item = items.find(candidate => candidate.id === stocktake.itemId);
+          const itemName = getItemDisplayName(item, language) || unknownAssignmentLabel;
+          return { id: stocktake.id, itemName };
+        });
+    }
+
+    return [];
+  }, [items, language, modalState, stocktakes, unknownAssignmentLabel]);
+
+  const toggleAssignmentRemoval = useCallback((stocktakeId: string) => {
+    setAssignmentsToRemove(prev => {
+      const next = new Set(prev);
+      if (next.has(stocktakeId)) {
+        next.delete(stocktakeId);
+      } else {
+        next.add(stocktakeId);
+      }
+      return next;
+    });
+  }, []);
+
+  const canModifyAssignments = modalState?.type === 'edit_location' || modalState?.type === 'edit_sublocation';
+ 
   const handleOpenModal = (state: ModalState) => {
       setModalState(state);
       setErrors({});
@@ -156,7 +217,10 @@ const LocationList: React.FC = () => {
       }
   };
 
-  const handleCloseModal = () => setModalState(null);
+  const handleCloseModal = () => {
+    setModalState(null);
+    setAssignmentsToRemove(new Set());
+  };
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -208,6 +272,16 @@ const LocationList: React.FC = () => {
                 break;
         }
         
+        const assignmentsMarkedForRemoval = Array.from(assignmentsToRemove);
+        if (assignmentsMarkedForRemoval.length > 0) {
+            const persistentIds = assignmentsMarkedForRemoval.filter(id => !id.startsWith('new-'));
+            if (!isOffline && persistentIds.length > 0) {
+                await api.deleteStocktakes(persistentIds);
+            }
+            removeStocktakes(assignmentsMarkedForRemoval);
+            setAssignmentsToRemove(new Set());
+        }
+
         if (needsRefetch) fetchAndSetLocations();
         handleCloseModal();
     } catch (e) {
@@ -355,6 +429,32 @@ const LocationList: React.FC = () => {
                 value={formData.description || ''}
                 onChange={e => setFormData(p => ({...p, description: e.target.value}))}
             />
+            {canModifyAssignments && (
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4 space-y-2">
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t('locations.assignments.title')}</h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t('locations.assignments.instructions', { target: assignmentTargetLabel })}</p>
+                {assignmentsForModal.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('locations.assignments.none')}</p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {assignmentsForModal.map(assignment => (
+                      <label
+                        key={assignment.id}
+                        className="flex items-center justify-between rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2"
+                      >
+                        <span className="text-sm text-gray-800 dark:text-gray-100">{assignment.itemName}</span>
+                        <input
+                          type="checkbox"
+                          className="form-checkbox h-4 w-4 text-primary-600"
+                          checked={assignmentsToRemove.has(assignment.id)}
+                          onChange={() => toggleAssignmentRemoval(assignment.id)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {errors.form && <p className="text-red-500 text-sm">{errors.form}</p>}
         </div>
     </Modal>
@@ -375,3 +475,4 @@ const LocationList: React.FC = () => {
 };
 
 export default LocationList;
+

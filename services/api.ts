@@ -347,6 +347,19 @@ export const api = {
     await batch.commit();
   },
 
+  deleteStocktakes: async (stocktakeIds: string[]): Promise<void> => {
+    const persistentIds = stocktakeIds.filter(id => !id.startsWith('new-'));
+    if (persistentIds.length === 0) {
+      return;
+    }
+
+    const batch = writeBatch(db);
+    persistentIds.forEach(id => {
+      batch.delete(doc(db, 'stocktakes', id));
+    });
+    await batch.commit();
+  },
+
   // --- Add new data ---
   addStore: async (newStore: NewStore): Promise<Store> => {
     const docRef = await addDoc(collection(db, 'stores'), newStore);

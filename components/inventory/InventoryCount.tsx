@@ -21,7 +21,8 @@ const LocationNode: React.FC<{
   onSelect: (id: string, isSub: boolean) => void;
   onHide: (id: string) => void;
   hideLabel: string;
-}> = ({ location, selectedId, onSelect, onHide, hideLabel }) => {
+  hideHint: string;
+}> = ({ location, selectedId, onSelect, onHide, hideLabel, hideHint }) => {
   const [isOpen, setIsOpen] = useState(false);
   const hasSublocations = location.sublocations && location.sublocations.length > 0;
 
@@ -62,6 +63,8 @@ const LocationNode: React.FC<{
           size="sm"
           variant="secondary"
           type="button"
+          title={hideHint}
+          aria-label={hideHint}
           onClick={(e) => {
             e.stopPropagation();
             onHide(location.id);
@@ -94,6 +97,8 @@ const LocationNode: React.FC<{
                 size="sm"
                 variant="secondary"
                 type="button"
+                title={hideHint}
+                aria-label={hideHint}
                 onClick={(e) => {
                   e.stopPropagation();
                   onHide(sub.id);
@@ -124,6 +129,7 @@ const InventoryCount: React.FC = () => {
     locations: allLocations,
     stocktakes: allStocktakes,
     saveStocktakes,
+    removeStocktakes,
   } = useContext(AppContext);
   const { hasPermission, isOffline } = useContext(AuthContext);
 
@@ -134,12 +140,34 @@ const InventoryCount: React.FC = () => {
   const [selectedIsSub, setSelectedIsSub] = useState(false);
   const [editedCounts, setEditedCounts] = useState<Record<string, string>>({});
   const [selectedForAssignment, setSelectedForAssignment] = useState<Set<string>>(new Set());
+  const [removingAssignments, setRemovingAssignments] = useState<Set<string>>(new Set());
   const [assignmentSearch, setAssignmentSearch] = useState('');
 
   const [hiddenLocationIds, setHiddenLocationIds] = useState<Set<string>>(new Set());
   const [hiddenItemIds, setHiddenItemIds] = useState<Set<string>>(new Set());
   const [showHiddenLocations, setShowHiddenLocations] = useState(false);
   const [showHiddenItems, setShowHiddenItems] = useState(false);
+  const [isSelectionPanelOpen, setIsSelectionPanelOpen] = useState(false);
+
+  const isMobileViewport = useCallback(() => typeof window !== 'undefined' && window.innerWidth < 768, []);
+  const openSelectionPanelOnMobile = useCallback(() => {
+    if (isMobileViewport()) {
+      setIsSelectionPanelOpen(true);
+    }
+  }, [isMobileViewport]);
+  const closeSelectionPanelOnMobile = useCallback(() => {
+    if (isMobileViewport()) {
+      setIsSelectionPanelOpen(false);
+    }
+  }, [isMobileViewport]);
+
+  useEffect(() => {
+    openSelectionPanelOnMobile();
+  }, [openSelectionPanelOnMobile]);
+
+  useEffect(() => {
+    openSelectionPanelOnMobile();
+  }, [viewMode, openSelectionPanelOnMobile]);
 
   const stockableItems = useMemo(() => allItems.filter((item) => !item.isDiscontinued), [allItems]);
 
@@ -287,14 +315,26 @@ const InventoryCount: React.FC = () => {
     setSelectedForAssignment(new Set());
     setAssignmentSearch('');
   }, [currentStore, viewMode, selectedId, activeTab]);
+  useEffect(() => {
+    setRemovingAssignments(new Set());
+  }, [selectedId, viewMode]);
+
 
   const canEdit = hasPermission(Role.Editor);
 
-  const hideLabel = t('common.hide');
+  const hideLabel = t('inventory.hideEntry');
   const restoreLabel = t('common.restore');
   const hiddenLocationsTitle = t('inventory.hiddenLocations');
   const hiddenItemsTitle = t('inventory.hiddenItems');
   const noHiddenLabel = t('inventory.hidden.none');
+  const hideHint = t('inventory.hideHint');
+  const hiddenToggleShow = t('inventory.hidden.showList');
+  const hiddenToggleHide = t('inventory.hidden.hideList');
+  const selectionPanelToggleLabel = useMemo(() => {
+    const target = viewMode === 'location' ? t('inventory.selectionPanel.locationList') : t('inventory.selectionPanel.itemList');
+    return t(isSelectionPanelOpen ? 'inventory.selectionPanel.close' : 'inventory.selectionPanel.open', { target });
+  }, [isSelectionPanelOpen, t, viewMode]);
+  const selectionPanelTitle = viewMode === 'location' ? t('inventory.viewByLocation') : t('inventory.viewByItem');
 
   const resolveSelectedLocation = () => {
     if (!selectedId) {
@@ -399,6 +439,33 @@ const InventoryCount: React.FC = () => {
     setAssignmentSearch('');
   };
 
+  const handleRemoveAssignment = useCallback(
+    async (stocktakeId: string) => {
+      setRemovingAssignments((prev) => {
+        const next = new Set(prev);
+        next.add(stocktakeId);
+        return next;
+      });
+
+      try {
+        const isTemporaryId = stocktakeId.startsWith('new-');
+        if (!isOffline && !isTemporaryId) {
+          await api.deleteStocktakes([stocktakeId]);
+        }
+        removeStocktakes([stocktakeId]);
+      } catch (error) {
+        console.error('Failed to remove assignment', error);
+      } finally {
+        setRemovingAssignments((prev) => {
+          const next = new Set(prev);
+          next.delete(stocktakeId);
+          return next;
+        });
+      }
+    },
+    [isOffline, removeStocktakes]
+  );
+
   const renderAssignmentContent = () => {
     if (!selectedId) {
       return (
@@ -461,7 +528,7 @@ const InventoryCount: React.FC = () => {
             {itemsForLocation.length === 0 ? (
               <p className="text-sm text-gray-500">{t('common.noResults')}</p>
             ) : (
-              <Table headers={[t('common.name'), t('inventory.lastCount'), t('inventory.lastCountDate')]}> 
+              <Table headers={[t('common.name'), t('inventory.lastCount'), t('inventory.lastCountDate'), t('common.actions')]}> 
                 {itemsForLocation.map((stocktake) => (
                   <TableRow key={stocktake.id}>
                     <TableCell>
@@ -472,6 +539,17 @@ const InventoryCount: React.FC = () => {
                     </TableCell>
                     <TableCell>{stocktake.lastCount}</TableCell>
                     <TableCell>{new Date(stocktake.lastCountedAt).toLocaleDateString()}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        type="button"
+                        onClick={() => handleRemoveAssignment(stocktake.id)}
+                        disabled={removingAssignments.has(stocktake.id)}
+                      >
+                        {t('common.delete')}
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </Table>
@@ -577,7 +655,7 @@ const InventoryCount: React.FC = () => {
           {stocktakesForItem.length === 0 ? (
             <p className="text-sm text-gray-500">{t('common.noResults')}</p>
           ) : (
-            <Table headers={[t('nav.locations'), t('inventory.lastCount'), t('inventory.lastCountDate')]}> 
+            <Table headers={[t('nav.locations'), t('inventory.lastCount'), t('inventory.lastCountDate'), t('common.actions')]}> 
               {stocktakesForItem.map((stocktake) => (
                 <TableRow key={stocktake.id}>
                   <TableCell>
@@ -588,6 +666,17 @@ const InventoryCount: React.FC = () => {
                   </TableCell>
                   <TableCell>{stocktake.lastCount}</TableCell>
                   <TableCell>{new Date(stocktake.lastCountedAt).toLocaleDateString()}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        type="button"
+                        onClick={() => handleRemoveAssignment(stocktake.id)}
+                        disabled={removingAssignments.has(stocktake.id)}
+                      >
+                        {t('common.delete')}
+                      </Button>
+                    </TableCell>
                 </TableRow>
               ))}
             </Table>
@@ -823,8 +912,32 @@ const InventoryCount: React.FC = () => {
         </div>
       </div>
 
+      <div className="md:hidden mb-4">
+        <Button
+          size="sm"
+          variant="secondary"
+          className="w-full"
+          onClick={() => setIsSelectionPanelOpen((prev) => !prev)}
+        >
+          {selectionPanelToggleLabel}
+        </Button>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-1 border-r pr-4 dark:border-gray-700 h-[calc(100vh-220px)] overflow-y-auto">
+        <div
+          className={classNames(
+            'md:col-span-1 md:border-r md:pr-4 md:dark:border-gray-700 md:h-[calc(100vh-220px)] md:overflow-y-auto space-y-2',
+            isSelectionPanelOpen ? 'block' : 'hidden',
+            'md:block'
+          )}
+        >
+          <div className="md:hidden flex items-center justify-between mb-2">
+            <span className="text-sm font-semibold">{selectionPanelTitle}</span>
+            <Button size="sm" variant="secondary" onClick={() => setIsSelectionPanelOpen(false)}>
+              {t('common.hide')}
+            </Button>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{hideHint}</p>
           {viewMode === 'location' ? (
             visibleLocations.length === 0 ? (
               <p className="text-sm text-gray-500">{t('locations.noLocations.description')}</p>
@@ -837,9 +950,11 @@ const InventoryCount: React.FC = () => {
                   onSelect={(id, isSub) => {
                     setSelectedId(id);
                     setSelectedIsSub(isSub);
+                    closeSelectionPanelOnMobile();
                   }}
                   onHide={hideLocationEntry}
                   hideLabel={hideLabel}
+                  hideHint={hideHint}
                 />
               ))
             )
@@ -857,6 +972,7 @@ const InventoryCount: React.FC = () => {
                   onClick={() => {
                     setSelectedId(item.id);
                     setSelectedIsSub(false);
+                    closeSelectionPanelOnMobile();
                   }}
                 >
                   <span>{getItemDisplayName(item, language)}</span>
@@ -864,6 +980,8 @@ const InventoryCount: React.FC = () => {
                     size="sm"
                     variant="secondary"
                     type="button"
+                    title={hideHint}
+                    aria-label={hideHint}
                     onClick={(e) => {
                       e.stopPropagation();
                       hideItemEntry(item.id);
@@ -885,7 +1003,7 @@ const InventoryCount: React.FC = () => {
                   type="button"
                   onClick={() => setShowHiddenLocations((prev) => !prev)}
                 >
-                  {showHiddenLocations ? t('common.hide') : t('common.show')}
+                  {showHiddenLocations ? hiddenToggleHide : hiddenToggleShow}
                 </Button>
               </div>
               {showHiddenLocations && (
@@ -924,7 +1042,7 @@ const InventoryCount: React.FC = () => {
                   type="button"
                   onClick={() => setShowHiddenItems((prev) => !prev)}
                 >
-                  {showHiddenItems ? t('common.hide') : t('common.show')}
+                  {showHiddenItems ? hiddenToggleHide : hiddenToggleShow}
                 </Button>
               </div>
               {showHiddenItems && (
@@ -954,7 +1072,7 @@ const InventoryCount: React.FC = () => {
             </div>
           )}
         </div>
-        <div className="md:col-span-2 h-[calc(100vh-220px)] overflow-y-auto">
+        <div className="md:col-span-2 md:h-[calc(100vh-220px)] md:overflow-y-auto">
           {activeTab === 'assignment' ? renderAssignmentContent() : renderCountContent()}
         </div>
       </div>
@@ -963,3 +1081,11 @@ const InventoryCount: React.FC = () => {
 };
 
 export default InventoryCount;
+
+
+
+
+
+
+
+

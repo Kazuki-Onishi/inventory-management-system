@@ -767,6 +767,7 @@ interface AppContextType {
 
 
   saveStocktakes: (updatedStocktakes: Stocktake[]) => void;
+  removeStocktakes: (stocktakeIds: string[]) => void;
 
 
 
@@ -1855,6 +1856,7 @@ export const AppContext = createContext<AppContextType>({
 
 
   saveStocktakes: () => {},
+  removeStocktakes: () => {},
 
 
 
@@ -4362,6 +4364,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
 
+  };
+
+  const removeStocktakes = (stocktakeIds: string[]) => {
+    if (stocktakeIds.length === 0) {
+      return;
+    }
+
+    const removalSet = new Set(stocktakeIds);
+    setStocktakes(prev => prev.filter(stocktake => !removalSet.has(stocktake.id)));
   };
 
 
@@ -8843,6 +8854,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
         saveStocktakes,
+        removeStocktakes,
 
 
 
@@ -9483,6 +9495,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
 };
+
 
 
 
