@@ -17,11 +17,11 @@ const Login: React.FC = () => {
     return /Line\/|FBAN|FBAV|Instagram|Messenger/.test(ua);
   }, []);
 
-  const handleLogin = async (isOffline: boolean, role?: 'Admin' | 'Editor') => {
+  const handleLogin = async () => {
     setError(null); // Reset error on new login attempt
     setCopied(false);
     try {
-      await login(isOffline, role);
+      await login(false);
       navigate('/');
     } catch (err: any) {
       console.error("Login failed", err);
@@ -104,27 +104,9 @@ const Login: React.FC = () => {
               </Button>
             </div>
           )}
-          <Button onClick={() => handleLogin(false)} className="w-full flex justify-center">
+          <Button onClick={handleLogin} className="w-full flex justify-center">
             {t('login.button')}
           </Button>
-          <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">
-                    {t('login.orContinue')}
-                  </span>
-              </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Button onClick={() => handleLogin(true, 'Admin')} variant="secondary" className="w-full flex justify-center">
-                {t('login.offlineAdmin')}
-            </Button>
-            <Button onClick={() => handleLogin(true, 'Editor')} variant="secondary" className="w-full flex justify-center">
-                {t('login.offlineEditor')}
-            </Button>
-          </div>
         </div>
       </div>
     </div>
