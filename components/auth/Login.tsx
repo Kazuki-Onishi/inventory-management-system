@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../contexts/AuthContext';
 import { useTranslation } from '../../hooks/useTranslation';
@@ -11,6 +11,11 @@ const Login: React.FC = () => {
   const { t } = useTranslation();
   const [error, setError] = useState<React.ReactNode | null>(null);
   const [copied, setCopied] = useState(false);
+  const isInAppBrowser = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    return /Line\/|FBAN|FBAV|Instagram|Messenger/.test(ua);
+  }, []);
 
   const handleLogin = async (isOffline: boolean, role?: 'Admin' | 'Editor') => {
     setError(null); // Reset error on new login attempt
@@ -79,6 +84,24 @@ const Login: React.FC = () => {
           {error && (
             <div className="bg-red-100 border border-red-400 text-red-700 dark:bg-red-900/20 dark:border-red-500/50 dark:text-red-300 px-4 py-3 rounded-md relative text-sm" role="alert">
               {error}
+            </div>
+          )}
+          {isInAppBrowser && (
+            <div className="rounded-md border border-yellow-400 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 space-y-3">
+              <div className="font-semibold">{t('login.inAppBrowser.title')}</div>
+              <p>{t('login.inAppBrowser.body')}</p>
+              <ol className="list-decimal list-inside space-y-1">
+                <li>{t('login.inAppBrowser.step1')}</li>
+                <li>{t('login.inAppBrowser.step2')}</li>
+                <li>{t('login.inAppBrowser.step3')}</li>
+              </ol>
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() => window.open(window.location.href, '_blank')}
+              >
+                {t('login.inAppBrowser.openExternal')}
+              </Button>
             </div>
           )}
           <Button onClick={() => handleLogin(false)} className="w-full flex justify-center">

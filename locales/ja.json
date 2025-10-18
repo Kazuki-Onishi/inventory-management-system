@@ -345,5 +345,11 @@
   "inventory.assignmentNote.modalTitle": "割り当てメモを編集",
   "inventory.assignmentNote.context.item": "商品",
   "inventory.assignmentNote.context.location": "ロケーション",
-  "inventory.assignmentNote.context.lastCount": "前回の棚卸"
+  "inventory.assignmentNote.context.lastCount": "前回の棚卸",
+  "login.inAppBrowser.title": "外部ブラウザで開いてください",
+  "login.inAppBrowser.body": "LINE や Instagram などのアプリ内ブラウザでは Google ログインが正常に動作しない場合があります。Safari や Chrome など外部ブラウザでこのページを開き直してください。",
+  "login.inAppBrowser.step1": "画面右上の共有ボタン（またはメニュー）をタップします。",
+  "login.inAppBrowser.step2": "「Safariで開く」または「Chromeで開く」を選択します。",
+  "login.inAppBrowser.step3": "再度ログイン画面に戻り、続行してください。",
+  "login.inAppBrowser.openExternal": "外部ブラウザで開く"
 }
