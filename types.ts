@@ -66,6 +66,7 @@ export type NewCategory = Omit<Category, 'id'>;
 
 export interface Item {
   id:string;
+  humanId?: string;
   name: string; // Full name, e.g., "コーヒー（オリジナルブレンド）"
   normalizedName: string;
   shortName: string;
@@ -77,9 +78,10 @@ export interface Item {
   nameEn?: string;
   janCode?: string;
   supplier?: string;
+  imageUrl?: string | null;
   categoryId?: string | null;
 }
-export type NewItem = Omit<Item, 'id' | 'normalizedName'>;
+export type NewItem = Omit<Item, 'id' | 'normalizedName'> & { humanId?: string };
 
 
 export interface SubLocation {
@@ -87,8 +89,9 @@ export interface SubLocation {
   humanId: string;
   name: string;
   description: string;
+  imageUrl?: string | null;
 }
-export type NewSubLocation = Omit<SubLocation, 'id'>;
+export type NewSubLocation = Omit<SubLocation, 'id' | 'humanId'> & { humanId?: string };
 
 
 export interface Location {
@@ -97,9 +100,10 @@ export interface Location {
   name: string;
   description: string;
   storeId: string;
+  imageUrl?: string | null;
   sublocations?: SubLocation[];
 }
-export type NewLocation = Omit<Location, 'id' | 'sublocations'>;
+export type NewLocation = Omit<Location, 'id' | 'sublocations' | 'humanId'> & { humanId?: string };
 
 export interface Stocktake {
     id: string;

@@ -20,48 +20,48 @@ const Login: React.FC = () => {
       navigate('/');
     } catch (err: any) {
       console.error("Login failed", err);
-      if (err.code === 'auth/unauthorized-domain') {
+        if (err.code === 'auth/unauthorized-domain') {
           const domain = window.location.hostname;
           if (domain) {
             const handleCopy = () => {
-                navigator.clipboard.writeText(domain).then(() => {
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 2000);
-                });
-              };
+              navigator.clipboard.writeText(domain).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              });
+            };
 
             const errorMessage = (
               <div>
-                <p className="font-bold mb-2">Configuration Error: Unauthorized Domain</p>
-                <p className="mb-2">To fix this, add the following domain to your Firebase project's "Authorized domains" list:</p>
+                <p className="font-bold mb-2">{t('login.error.unauthorized.title')}</p>
+                <p className="mb-2">{t('login.error.unauthorized.description')}</p>
                 <ol className="list-decimal list-inside space-y-1 mb-3">
-                    <li>Go to your Firebase Console.</li>
-                    <li>Navigate to: <strong>Authentication &rarr; Settings</strong> tab.</li>
-                    <li>Click <strong>Add domain</strong>.</li>
-                    <li>Copy and paste the domain below.</li>
+                  <li dangerouslySetInnerHTML={{ __html: t('login.error.unauthorized.step1') }} />
+                  <li dangerouslySetInnerHTML={{ __html: t('login.error.unauthorized.step2') }} />
+                  <li dangerouslySetInnerHTML={{ __html: t('login.error.unauthorized.step3') }} />
+                  <li dangerouslySetInnerHTML={{ __html: t('login.error.unauthorized.step4') }} />
                 </ol>
                 <div className="flex items-center justify-between p-2 rounded-md bg-red-200 dark:bg-red-800/50">
-                    <code className="font-mono text-lg font-bold text-red-900 dark:text-red-100">{domain}</code>
-                    <button
-                        onClick={handleCopy}
-                        className="flex items-center px-3 py-1 text-sm rounded-md bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-red-100 dark:focus:ring-offset-red-900/20 focus:ring-primary-500 transition-all"
-                    >
-                        {ICONS.copy}
-                        <span className="ml-2 w-16 text-left">{copied ? 'Copied!' : 'Copy'}</span>
-                    </button>
+                  <code className="font-mono text-lg font-bold text-red-900 dark:text-red-100">{domain}</code>
+                  <button
+                    onClick={handleCopy}
+                    className="flex items-center px-3 py-1 text-sm rounded-md bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-red-100 dark:focus:ring-offset-red-900/20 focus:ring-primary-500 transition-all"
+                  >
+                    {ICONS.copy}
+                    <span className="ml-2 text-left whitespace-nowrap">
+                      {copied ? t('login.error.unauthorized.copied') : t('login.error.unauthorized.copy')}
+                    </span>
+                  </button>
                 </div>
 
-                <p className="text-xs italic mt-3">
-                  Note: "Sign in with Google" handles both login and registration. You can also use "Offline Mode" to test without Firebase.
-                </p>
+                <p className="text-xs italic mt-3">{t('login.error.unauthorized.note')}</p>
               </div>
             );
             setError(errorMessage);
+          } else {
+            setError(t('login.error.unauthorized.detectFailed'));
+          }
         } else {
-             setError("Configuration Error: Could not detect the app's domain. Please check your browser's security settings or development environment and add the correct domain to your Firebase project's 'Authorized domains' list manually.");
-        }
-      } else {
-        setError("An unexpected error occurred during login. Please try again.");
+          setError(t('login.error.generic'));
       }
     }
   };
@@ -89,7 +89,9 @@ const Login: React.FC = () => {
                   <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">Or continue with</span>
+                  <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                    {t('login.orContinue')}
+                  </span>
               </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

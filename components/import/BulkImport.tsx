@@ -1,8 +1,9 @@
-
+﻿
 import React, { useState, useContext } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import Card from '../ui/Card';
 import { ICONS } from '../../constants';
+import { ensureItemHumanId, generateNextItemHumanId } from '../../lib/items';
 import Button from '../ui/Button';
 import { Table, TableRow, TableCell } from '../ui/Table';
 import { AppContext } from '../../contexts/AppContext';
@@ -89,6 +90,7 @@ const BulkImport: React.FC = () => {
     setConfirmModalOpen(true);
   };
 
+
   const processImport = async () => {
     if (!file) return;
     setIsLoading(true);
@@ -100,7 +102,7 @@ const BulkImport: React.FC = () => {
     const missingHeaders = REQUIRED_HEADERS.filter(h => !headers.includes(h));
     if (missingHeaders.length > 0) {
         setResults([{
-            row: 1, status: ImportStatus.Error, 
+            row: 1, status: ImportStatus.Error,
             message: t('import.errors.missingRequiredHeaders', { headers: missingHeaders.join(', ')})
         }]);
         setIsLoading(false);
@@ -108,38 +110,54 @@ const BulkImport: React.FC = () => {
     }
 
     // 2. Fetch existing items for checking duplicates/updates
-    const existingItems = isOffline ? items : await api.fetchItems();
-    const existingSkuMap = new Map(existingItems.filter(i => i.sku).map(item => [item.sku, item]));
-    const existingNameMap = new Map(existingItems.map(item => [item.name.toLowerCase(), item]));
-    
+    const rawExistingItems = isOffline ? items : await api.fetchItems();
+    const existingItemsWithIds = rawExistingItems.map(item => ensureItemHumanId(item));
+    const existingSkuMap = new Map(existingItemsWithIds.filter(i => i.sku).map(item => [item.sku!, item]));
+    const existingNameMap = new Map(existingItemsWithIds.map(item => [item.name.toLowerCase(), item]));
+    const existingHumanIdMap = new Map(existingItemsWithIds.filter(item => item.humanId).map(item => [item.humanId!.toLowerCase(), item]));
+
+    const usedHumanIds = new Map<string, string>();
+    existingItemsWithIds.forEach(item => {
+      if (item.humanId) {
+        usedHumanIds.set(item.humanId.toLowerCase(), item.id);
+      }
+    });
+    const plannedItemsForIds: Array<{ id: string; humanId?: string | null }> = existingItemsWithIds.map(item => ({ id: item.id, humanId: item.humanId }));
+
     const importResults: ImportResult[] = [];
-    
+
     // 3. Process each row
     for (let i = 0; i < data.length; i++) {
         const rowData = data[i];
         const rowNum = i + 2; // CSV row number (1-based, plus header)
 
-        const sku = rowData.sku;
-        const name = rowData.name;
-        let existingItem: Item | undefined | null = null;
+        const sku = rowData.sku?.trim();
+        const name = rowData.name?.trim();
+        const humanIdFromRow = rowData.humanId?.trim();
+        let existingItem: Item | undefined = undefined;
 
         if (sku) {
           existingItem = existingSkuMap.get(sku);
         }
-        
-        // Validation for costs and booleans
-        const costA = rowData.costA ? parseFloat(rowData.costA) : (existingItem?.costA || 0);
+        if (!existingItem && humanIdFromRow) {
+          existingItem = existingHumanIdMap.get(humanIdFromRow.toLowerCase());
+        }
+        if (!existingItem && name) {
+          existingItem = existingNameMap.get(name.toLowerCase());
+        }
+
+        const costA = rowData.costA ? parseFloat(rowData.costA) : existingItem?.costA ?? 0;
         if (rowData.costA && isNaN(costA)) {
             importResults.push({ row: rowNum, status: ImportStatus.Error, message: t('import.errors.invalidCost', { field: 'costA' }) });
             continue;
         }
 
-        const costB = rowData.costB ? parseFloat(rowData.costB) : (existingItem?.costB || 0);
+        const costB = rowData.costB ? parseFloat(rowData.costB) : existingItem?.costB ?? 0;
         if (rowData.costB && isNaN(costB)) {
             importResults.push({ row: rowNum, status: ImportStatus.Error, message: t('import.errors.invalidCost', { field: 'costB' }) });
             continue;
         }
-        
+
         let isDiscontinued: boolean;
         if (rowData.isDiscontinued) {
             const val = rowData.isDiscontinued.toUpperCase();
@@ -152,28 +170,76 @@ const BulkImport: React.FC = () => {
             isDiscontinued = existingItem?.isDiscontinued || false;
         }
 
+        const imageUrlValue = rowData.imageUrl ? rowData.imageUrl.trim() : undefined;
+
+        let humanId = humanIdFromRow && humanIdFromRow.length > 0 ? humanIdFromRow : undefined;
+        if (!humanId && existingItem?.humanId) {
+          humanId = existingItem.humanId;
+        }
+        const previousHumanIdLower = existingItem?.humanId ? existingItem.humanId.toLowerCase() : null;
+        const plannedId = existingItem?.id ?? `import-${rowNum}`;
+        if (!humanId) {
+          humanId = generateNextItemHumanId(plannedItemsForIds);
+        }
+        const normalizedHumanIdLower = humanId.toLowerCase();
+        const humanIdOwner = usedHumanIds.get(normalizedHumanIdLower);
+        if (humanIdOwner && (!existingItem || humanIdOwner !== existingItem.id)) {
+          importResults.push({ row: rowNum, status: ImportStatus.Error, message: t('import.errors.duplicateHumanId', { humanId }) });
+          continue;
+        }
+        usedHumanIds.set(normalizedHumanIdLower, plannedId);
+        const plannedIndex = plannedItemsForIds.findIndex(entry => entry.id === plannedId);
+        if (plannedIndex >= 0) {
+          plannedItemsForIds[plannedIndex] = { id: plannedId, humanId };
+        } else {
+          plannedItemsForIds.push({ id: plannedId, humanId });
+        }
 
         try {
             if (existingItem) {
-                // Update
+                const updatedName = name || existingItem.name;
+                const updatedShortName = rowData.shortName || existingItem.shortName;
+                const updatedDescription = rowData.description || existingItem.description;
+                const updatedNameEn = rowData.nameEn || existingItem.nameEn || '';
+                const updatedJanCode = rowData.janCode || existingItem.janCode || '';
+                const updatedSupplier = rowData.supplier || existingItem.supplier || '';
+                const updatedImageUrl = imageUrlValue !== undefined ? (imageUrlValue.length > 0 ? imageUrlValue : null) : existingItem.imageUrl ?? null;
+
                 const itemToUpdate: Item = {
                     ...existingItem,
-                    name: name || existingItem.name,
-                    normalizedName: (name || existingItem.name).toLowerCase(),
-                    shortName: rowData.shortName || existingItem.shortName,
-                    description: rowData.description || existingItem.description,
+                    sku: sku || existingItem.sku || '',
+                    name: updatedName,
+                    normalizedName: updatedName.toLowerCase(),
+                    shortName: updatedShortName,
+                    description: updatedDescription,
                     costA,
                     costB,
                     isDiscontinued,
-                    nameEn: rowData.nameEn || existingItem.nameEn,
-                    janCode: rowData.janCode || existingItem.janCode,
-                    supplier: rowData.supplier || existingItem.supplier,
+                    nameEn: updatedNameEn,
+                    janCode: updatedJanCode,
+                    supplier: updatedSupplier,
+                    humanId,
+                    imageUrl: updatedImageUrl,
                 };
                 isOffline ? await updateItem(itemToUpdate) : await api.updateItem(itemToUpdate);
-                importResults.push({ row: rowNum, status: ImportStatus.Updated, message: `SKU: ${sku}`});
+                importResults.push({ row: rowNum, status: ImportStatus.Updated, message: sku ? `SKU: ${sku}` : updatedName });
 
+                if (existingItem.sku && existingItem.sku !== itemToUpdate.sku) {
+                  existingSkuMap.delete(existingItem.sku);
+                }
+                if (itemToUpdate.sku) {
+                  existingSkuMap.set(itemToUpdate.sku, itemToUpdate);
+                }
+                if (existingItem.name.toLowerCase() !== itemToUpdate.name.toLowerCase()) {
+                  existingNameMap.delete(existingItem.name.toLowerCase());
+                }
+                existingNameMap.set(itemToUpdate.name.toLowerCase(), itemToUpdate);
+                if (previousHumanIdLower && previousHumanIdLower !== normalizedHumanIdLower) {
+                  usedHumanIds.delete(previousHumanIdLower);
+                  existingHumanIdMap.delete(previousHumanIdLower);
+                }
+                existingHumanIdMap.set(normalizedHumanIdLower, itemToUpdate);
             } else {
-                // Create
                 if (!name) {
                     importResults.push({ row: rowNum, status: ImportStatus.Error, message: t('import.errors.missingName') });
                     continue;
@@ -194,16 +260,29 @@ const BulkImport: React.FC = () => {
                     nameEn: rowData.nameEn || '',
                     janCode: rowData.janCode || '',
                     supplier: rowData.supplier || '',
+                    humanId,
+                    imageUrl: imageUrlValue && imageUrlValue.length > 0 ? imageUrlValue : null,
+                    categoryId: null,
                 };
                 const createdItem = isOffline ? await addItem(newItem) : await api.addItem(newItem);
-                // Add to maps to prevent duplicates within the same file
-                if (createdItem.sku) {
-                    existingSkuMap.set(createdItem.sku, createdItem);
+                const createdWithId = ensureItemHumanId(createdItem);
+
+                if (createdWithId.sku) {
+                    existingSkuMap.set(createdWithId.sku, createdWithId);
                 }
-                existingNameMap.set(createdItem.name.toLowerCase(), createdItem);
+                existingNameMap.set(createdWithId.name.toLowerCase(), createdWithId);
+                if (createdWithId.humanId) {
+                  existingHumanIdMap.set(createdWithId.humanId.toLowerCase(), createdWithId);
+                  usedHumanIds.set(createdWithId.humanId.toLowerCase(), createdWithId.id);
+                }
+                const createdIndex = plannedItemsForIds.findIndex(entry => entry.id === plannedId);
+                if (createdIndex >= 0) {
+                  plannedItemsForIds[createdIndex] = { id: createdWithId.id, humanId: createdWithId.humanId };
+                }
 
                 let successMessage = `Name: ${name}`;
                 if (sku) successMessage += `, SKU: ${sku}`;
+                if (createdWithId.humanId) successMessage += `, ID: ${createdWithId.humanId}`;
                 importResults.push({ row: rowNum, status: ImportStatus.Created, message: successMessage });
             }
         } catch (error) {
@@ -211,16 +290,11 @@ const BulkImport: React.FC = () => {
             importResults.push({ row: rowNum, status: ImportStatus.Error, message: (error as Error).message });
         }
     }
-    
+
     setResults(importResults);
     setIsLoading(false);
   };
 
-  const handleConfirmImport = async () => {
-    setConfirmModalOpen(false);
-    await processImport();
-  };
-  
   const summary = results ? results.reduce((acc, result) => {
       if(result.status === ImportStatus.Created) acc.created++;
       if(result.status === ImportStatus.Updated) acc.updated++;

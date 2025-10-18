@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState, useContext, useMemo } from 'react';
+import React, { useEffect, useState, useContext, useMemo, useCallback } from 'react';
 import { api } from '../../services/api';
 import { Item, Role, NewItem } from '../../types';
 import { useTranslation } from '../../hooks/useTranslation';
@@ -11,10 +11,12 @@ import Button from '../ui/Button';
 import { ICONS } from '../../constants';
 import Spinner from '../ui/Spinner';
 import Modal from '../ui/Modal';
-import { classNames, getItemDisplayName } from '../../lib/utils';
+import { classNames, createSearchTerms, getItemDisplayName, matchesSearch } from '../../lib/utils';
+import { ensureItemHumanId, generateNextItemHumanId } from '../../lib/items';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import { Table, TableRow, TableCell } from '../ui/Table';
 import Select from '../ui/Select';
+import ItemImageModal from './ItemImageModal';
 
 type ModalState =
   | { type: 'add' }
@@ -26,6 +28,7 @@ const ItemList: React.FC = () => {
   const { hasPermission, isOffline } = useContext(AuthContext);
   const { items: contextItems, categories, addItem, updateItem, deleteItem, showToast } = useContext(AppContext);
   const [items, setItems] = useState<Item[]>([]);
+  const mapItemsWithHumanId = useCallback((list: Item[]): Item[] => list.map((item) => ensureItemHumanId(item)), []);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showDiscontinued, setShowDiscontinued] = useState(false);
@@ -37,15 +40,17 @@ const ItemList: React.FC = () => {
   const [formData, setFormData] = useState<Partial<NewItem & { isDiscontinued: boolean }>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isAdvancedVisible, setAdvancedVisible] = useState(false);
+  const [imageModalItem, setImageModalItem] = useState<Item | null>(null);
+
 
   const fetchAndSetItems = () => {
     setLoading(true);
     if (isOffline) {
-      setItems(contextItems);
+      setItems(mapItemsWithHumanId(contextItems));
       setLoading(false);
     } else {
       api.fetchItems().then(data => {
-        setItems(data);
+        setItems(mapItemsWithHumanId(data));
       }).catch(err => console.error("Failed to fetch items", err))
       .finally(() => setLoading(false));
     }
@@ -55,6 +60,8 @@ const ItemList: React.FC = () => {
     fetchAndSetItems();
   }, [isOffline, contextItems]);
 
+  const searchTerms = useMemo(() => createSearchTerms(searchTerm), [searchTerm]);
+
   const filteredItems = useMemo(() => {
     let tempItems = items;
     if (!showDiscontinued) {
@@ -63,39 +70,70 @@ const ItemList: React.FC = () => {
     if (selectedCategoryId) {
         tempItems = tempItems.filter(item => item.categoryId === selectedCategoryId);
     }
-    if (searchTerm) {
-        const lowerSearchTerm = searchTerm.toLowerCase();
-        tempItems = tempItems.filter(item => 
-            getItemDisplayName(item, language).toLowerCase().includes(lowerSearchTerm) ||
-            item.shortName.toLowerCase().includes(lowerSearchTerm) ||
-            item.sku?.toLowerCase().includes(lowerSearchTerm)
+    if (searchTerms.length > 0) {
+        tempItems = tempItems.filter(item =>
+            matchesSearch(
+                [
+                    getItemDisplayName(item, language),
+                    item.shortName,
+                    item.sku,
+                    item.humanId,
+                    item.nameEn,
+                    item.description,
+                ],
+                searchTerms,
+            )
         );
     }
     return tempItems.sort((a, b) => getItemDisplayName(a, language).localeCompare(getItemDisplayName(b, language), language === 'ja' ? 'ja-JP' : 'en-US'));
-  }, [items, showDiscontinued, searchTerm, language, selectedCategoryId]);
+  }, [items, showDiscontinued, searchTerms, language, selectedCategoryId]);
 
 
   const handleOpenModal = (state: ModalState) => {
     setModalState(state);
     setErrors({});
     setAdvancedVisible(false);
+    const baseItems = mapItemsWithHumanId(items.length > 0 ? items : contextItems);
+
     if (state?.type === 'edit') {
-        setFormData(state.item);
+      const itemWithId = ensureItemHumanId(state.item);
+      setFormData({
+        ...itemWithId,
+        nameEn: itemWithId.nameEn || '',
+        shortName: itemWithId.shortName || '',
+        description: itemWithId.description || '',
+        costA: itemWithId.costA,
+        costB: itemWithId.costB,
+        sku: itemWithId.sku || '',
+        isDiscontinued: itemWithId.isDiscontinued || false,
+        janCode: itemWithId.janCode || '',
+        supplier: itemWithId.supplier || '',
+        categoryId: itemWithId.categoryId || '',
+        imageUrl: itemWithId.imageUrl || '',
+        humanId: itemWithId.humanId,
+      });
     } else {
-        setFormData({
-            name: '',
-            shortName: '',
-            description: '',
-            costA: 0,
-            costB: 0,
-            sku: '',
-            isDiscontinued: false,
-            nameEn: '',
-            janCode: '',
-            supplier: '',
-            categoryId: '',
-        });
+      const nextHumanId = generateNextItemHumanId(baseItems);
+      setFormData({
+        name: '',
+        humanId: nextHumanId,
+        shortName: '',
+        description: '',
+        costA: 0,
+        costB: 0,
+        sku: '',
+        isDiscontinued: false,
+        nameEn: '',
+        janCode: '',
+        supplier: '',
+        categoryId: '',
+        imageUrl: '',
+      });
     }
+  };
+
+  const handleCloseModal = () => {
+    setModalState(null);
   };
 
   const validateForm = (): boolean => {
@@ -114,41 +152,79 @@ const ItemList: React.FC = () => {
   
   const handleSave = async () => {
     if (!validateForm() || !modalState) {
-        showToast(t('toast.saveError'), 'error');
-        return;
+      showToast(t('toast.saveError'), 'error');
+      return;
     }
 
     try {
-        let needsRefetch = false;
-        const normalizedCategoryId = formData.categoryId ? formData.categoryId : null;
-        const data: NewItem = {
-            name: formData.name!,
-            shortName: formData.shortName || '',
-            description: formData.description || '',
-            costA: formData.costA || 0,
-            costB: formData.costB || 0,
-            sku: formData.sku || '',
-            isDiscontinued: formData.isDiscontinued || false,
-            nameEn: formData.nameEn || '',
-            janCode: formData.janCode || '',
-            supplier: formData.supplier || '',
-            categoryId: normalizedCategoryId,
-        };
+      let needsRefetch = false;
+      const normalizedCategoryId = formData.categoryId ? formData.categoryId : null;
+      const trimmedName = formData.name!.trim();
+      const trimmedNameEn = formData.nameEn?.trim() || '';
+      const trimmedHumanId = formData.humanId?.trim();
+      const baseItemsForId = mapItemsWithHumanId(items.length > 0 ? items : contextItems);
+      const humanId = trimmedHumanId && trimmedHumanId.length > 0 ? trimmedHumanId : generateNextItemHumanId(baseItemsForId);
+      const currentImageUrl = formData.imageUrl?.trim() || null;
 
-        if (modalState.type === 'add') {
-            if(isOffline) { await addItem(data); } else { await api.addItem(data); needsRefetch = true; }
-        } else { // edit
-            const updatedItem = { ...modalState.item, ...data };
-            if(isOffline) { await updateItem(updatedItem); } else { await api.updateItem(updatedItem); needsRefetch = true; }
+      const data: NewItem = {
+        name: trimmedName,
+        shortName: formData.shortName?.trim() || '',
+        description: formData.description?.trim() || '',
+        costA: formData.costA ?? 0,
+        costB: formData.costB ?? 0,
+        sku: formData.sku?.trim() || '',
+        isDiscontinued: !!formData.isDiscontinued,
+        nameEn: trimmedNameEn,
+        janCode: formData.janCode?.trim() || '',
+        supplier: formData.supplier?.trim() || '',
+        categoryId: normalizedCategoryId,
+        humanId,
+        imageUrl: currentImageUrl,
+      };
+
+      let targetItem: Item;
+
+      if (modalState.type === 'add') {
+        if (isOffline) {
+          targetItem = await addItem(data);
+        } else {
+          targetItem = await api.addItem(data);
+          needsRefetch = true;
         }
+      } else {
+        const updatedItem = { ...modalState.item, ...data };
+        if (isOffline) {
+          await updateItem(updatedItem);
+        } else {
+          await api.updateItem(updatedItem);
+          needsRefetch = true;
+        }
+        targetItem = updatedItem;
+      }
 
-        if (needsRefetch) fetchAndSetItems();
-        setModalState(null);
-        showToast(t('toast.saveSuccess'));
-    } catch (e) {
-        console.error("Failed to save item", e);
-        showToast(t('toast.saveError'), 'error');
+      if (needsRefetch) {
+        fetchAndSetItems();
+      }
+
+      setModalState(null);
+      showToast(t('toast.saveSuccess'));
+    } catch (error) {
+      console.error('Failed to save item', error);
+      showToast(t('toast.saveError'), 'error');
     }
+  };
+
+
+  const handleImageModalClose = () => {
+    setImageModalItem(null);
+  };
+
+  const handleImageModalCompleted = (updatedItem?: Item) => {
+    if (updatedItem && modalState?.type === 'edit' && modalState.item.id === updatedItem.id) {
+      setFormData(prev => ({ ...prev, imageUrl: updatedItem.imageUrl || '' }));
+    }
+    fetchAndSetItems();
+    setImageModalItem(null);
   };
 
   const handleConfirmDelete = async () => {
@@ -179,14 +255,31 @@ const ItemList: React.FC = () => {
   const canEdit = hasPermission(Role.Editor);
 
   const renderItemTable = () => (
-    <Table headers={[t('products.fullName'), t('products.category'), t('products.sku'), t('common.actions')]}>
+    <Table headers={[t('products.fullName'), t('products.humanId'), t('products.category'), t('products.sku'), t('common.actions')]}>
         {filteredItems.map(item => {
             const categoryName = categories.find(c => c.id === item.categoryId)?.name || '-';
             return (
                 <TableRow key={item.id} className={classNames(item.isDiscontinued && "text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800/50")}>
                     <TableCell>
-                        <div className="font-medium text-gray-900 dark:text-white">{getItemDisplayName(item, language)}</div>
-                        <div className="text-sm text-gray-500">{item.description}</div>
+                        <div className="flex items-start gap-3">
+                            {item.imageUrl && (
+                                <img
+                                    src={item.imageUrl}
+                                    alt={getItemDisplayName(item, language)}
+                                    className="h-14 w-14 rounded-md object-cover border border-gray-200 dark:border-gray-700"
+                                    loading="lazy"
+                                />
+                            )}
+                            <div>
+                                <div className="font-medium text-gray-900 dark:text-white">{getItemDisplayName(item, language)}</div>
+                                {item.description && (
+                                    <div className="text-sm text-gray-500 dark:text-gray-400">{item.description}</div>
+                                )}
+                            </div>
+                        </div>
+                    </TableCell>
+                    <TableCell>
+                        <span className="font-mono text-sm text-gray-700 dark:text-gray-300">{item.humanId || '-'}</span>
                     </TableCell>
                     <TableCell>{categoryName}</TableCell>
                     <TableCell>
@@ -199,6 +292,14 @@ const ItemList: React.FC = () => {
                     <TableCell className="text-right">
                         {canEdit && (
                             <div className="flex justify-end space-x-2">
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => setImageModalItem(item)}
+                                    disabled={isOffline}
+                                >
+                                    {item.imageUrl ? t('products.imageUpload.manage') : t('products.imageUpload.add')}
+                                </Button>
                                 <Button size="sm" variant="secondary" onClick={() => handleOpenModal({ type: 'edit', item })}>{t('common.edit')}</Button>
                                 <Button size="sm" variant="danger" onClick={() => setDeletingItem(item)}>{t('common.delete')}</Button>
                             </div>
@@ -269,16 +370,28 @@ const ItemList: React.FC = () => {
     
     <Modal
         isOpen={!!modalState}
-        onClose={() => setModalState(null)}
+        onClose={handleCloseModal}
         title={getModalTitle()}
+        maxWidthClassName="max-w-4xl"
+        bodyClassName="space-y-4"
         footer={
             <>
-                <Button variant="secondary" onClick={() => setModalState(null)}>{t('common.cancel')}</Button>
+                <Button variant="secondary" onClick={handleCloseModal}>{t('common.cancel')}</Button>
                 <Button onClick={handleSave} className="ml-2">{t('common.save')}</Button>
             </>
         }
     >
-        <div className="space-y-4">
+            <div className="space-y-1">
+                <Input
+                    label={t('products.humanId')}
+                    value={formData.humanId || ''}
+                    readOnly
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="bg-gray-100 dark:bg-gray-800 cursor-default"
+                    error={errors.humanId}
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t('products.humanId.readOnly')}</p>
+            </div>
             <Input label={t('products.fullName')} value={formData.name || ''} onChange={e => setFormData(p => ({...p, name: e.target.value}))} placeholder={t('products.fullName.placeholder')} error={errors.name} />
             <Input label={t('products.shortName')} value={formData.shortName || ''} onChange={e => setFormData(p => ({...p, shortName: e.target.value}))} placeholder={t('products.shortName.placeholder')} />
             <Select 
@@ -320,10 +433,44 @@ const ItemList: React.FC = () => {
                     <Input label={t('products.costA')} type="number" value={formData.costA ?? 0} onChange={e => setFormData(p => ({...p, costA: parseFloat(e.target.value) || 0}))} error={errors.costA} />
                     <Input label={t('products.costB')} type="number" value={formData.costB ?? 0} onChange={e => setFormData(p => ({...p, costB: parseFloat(e.target.value) || 0}))} error={errors.costB} />
                 </div>
-                <Input label={t('products.nameEn')} value={formData.nameEn || ''} onChange={e => setFormData(p => ({...p, nameEn: e.target.value}))} placeholder={t('products.nameEn.placeholder')} />
+                <Input label={t('products.nameEn')} value={formData.nameEn || ''} onChange={e => setFormData(p => ({...p, nameEn: e.target.value}))} placeholder={t('products.nameEn.placeholder')} error={errors.nameEn} />
                 <Input label={t('products.janCode')} value={formData.janCode || ''} onChange={e => setFormData(p => ({...p, janCode: e.target.value}))} placeholder={t('products.janCode.placeholder')} />
-                {/* FIX: Complete the supplier Input component, which was truncated. */}
                 <Input label={t('products.supplier')} value={formData.supplier || ''} onChange={e => setFormData(p => ({...p, supplier: e.target.value}))} placeholder={t('products.supplier.placeholder')} />
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t('products.imageUpload.title')}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {formData.imageUrl ? t('products.imageUpload.attached') : t('products.imageUpload.notAttached')}
+                    </span>
+                  </div>
+                  {formData.imageUrl ? (
+                    <img
+                      src={formData.imageUrl}
+                      alt={formData.name || formData.shortName || 'item preview'}
+                      className="h-20 w-20 rounded-md object-cover border border-gray-200 dark:border-gray-700"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="flex h-20 w-20 items-center justify-center rounded-md border border-dashed border-gray-300 text-xs text-gray-500 dark:border-gray-600 dark:text-gray-400">
+                      {t('products.imageUpload.placeholder')}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => modalState?.type === 'edit' && setImageModalItem(modalState.item)}
+                      disabled={modalState?.type !== 'edit' || isOffline}
+                    >
+                      {formData.imageUrl ? t('products.imageUpload.manage') : t('products.imageUpload.add')}
+                    </Button>
+                    {modalState?.type === 'add' && (
+                      <span className="text-xs text-gray-500 dark:text-gray-400">{t('products.imageUpload.saveFirst')}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('products.imageUpload.helper')}</p>
+                </div>
+
                 <label className="flex items-center space-x-2 pt-2">
                   <input
                     type="checkbox"
@@ -335,8 +482,18 @@ const ItemList: React.FC = () => {
                 </label>
               </div>
             )}
-        </div>
     </Modal>
+    {imageModalItem && (
+      <ItemImageModal
+        isOpen
+        item={imageModalItem}
+        onClose={handleImageModalClose}
+        onCompleted={handleImageModalCompleted}
+        isOffline={isOffline}
+        showToast={showToast}
+      />
+    )}
+
     <ConfirmationModal
         isOpen={!!deletingItem}
         onClose={() => setDeletingItem(null)}
@@ -351,3 +508,4 @@ const ItemList: React.FC = () => {
 
 // FIX: Add default export to resolve module import error in App.tsx.
 export default ItemList;
+

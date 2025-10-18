@@ -8,11 +8,13 @@ import Card from '../ui/Card';
 import Button from '../ui/Button';
 import { ICONS } from '../../constants';
 import { classNames, getItemDisplayName } from '../../lib/utils';
+import { ensureLocationHumanId, generateNextLocationHumanId, generateNextSubLocationHumanId } from '../../lib/locations';
 import Spinner from '../ui/Spinner';
 import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Select from '../ui/Select';
 import ConfirmationModal from '../ui/ConfirmationModal';
+import LocationImageModal from './LocationImageModal';
 
 type ModalState = 
   | { type: 'add_location' }
@@ -26,17 +28,35 @@ type DeletingTarget =
   | { id: string, name: string, isSub: true, parentId: string }
   | null;
 
+type ImageModalState =
+  | { kind: 'location'; location: Location }
+  | { kind: 'sublocation'; location: Location; subLocation: SubLocation }
+  | null;
+
 const LocationRow: React.FC<{ 
     location: Location, 
     canEdit: boolean,
+    isOffline: boolean,
     onEditLocation: (location: Location) => void,
     onDeleteLocation: (location: Location) => void,
     onEditSubLocation: (subLocation: SubLocation, parentId: string, parentHumanId: string) => void,
     onDeleteSubLocation: (subLocation: SubLocation, parentId: string) => void,
-}> = ({ location, canEdit, onEditLocation, onDeleteLocation, onEditSubLocation, onDeleteSubLocation }) => {
+    onManageLocationImage: (location: Location) => void,
+    onManageSubLocationImage: (subLocation: SubLocation, parent: Location) => void,
+}> = ({
+  location,
+  canEdit,
+  isOffline,
+  onEditLocation,
+  onDeleteLocation,
+  onEditSubLocation,
+  onDeleteSubLocation,
+  onManageLocationImage,
+  onManageSubLocationImage,
+}) => {
     const [isOpen, setIsOpen] = useState(false);
     const { t } = useTranslation();
-    const hasSublocations = location.sublocations && location.sublocations.length > 0;
+    const hasSublocations = Array.isArray(location.sublocations) && location.sublocations.length > 0;
   
     return (
       <div className="border-b dark:border-gray-700 last:border-b-0">
@@ -67,6 +87,17 @@ const LocationRow: React.FC<{
             
             {canEdit && (
               <div className="flex space-x-2 flex-shrink-0">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={isOffline}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onManageLocationImage(location);
+                  }}
+                >
+                  {location.imageUrl ? t('locations.image.manage') : t('locations.image.add')}
+                </Button>
                 <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); onEditLocation(location); }}>{t('common.edit')}</Button>
                 <Button variant="danger" size="sm" onClick={(e) => { e.stopPropagation(); onDeleteLocation(location); }}>{t('common.delete')}</Button>
               </div>
@@ -91,6 +122,17 @@ const LocationRow: React.FC<{
                   
                   {canEdit && (
                     <div className="flex space-x-2 flex-shrink-0">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={isOffline}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onManageSubLocationImage(sub, location);
+                        }}
+                      >
+                        {sub.imageUrl ? t('locations.image.manage') : t('locations.image.add')}
+                      </Button>
                       <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); onEditSubLocation(sub, location.id, location.humanId); }}>{t('common.edit')}</Button>
                       <Button variant="danger" size="sm" onClick={(e) => { e.stopPropagation(); onDeleteSubLocation(sub, location.id); }}>{t('common.delete')}</Button>
                     </div>
@@ -118,13 +160,31 @@ const LocationList: React.FC = () => {
     deleteLocation,
     deleteSubLocation,
     removeStocktakes,
+    showToast,
   } = useContext(AppContext);
   const { hasPermission, isOffline } = useContext(AuthContext);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
+  const preparedLocations = useMemo(() => {
+    return locations
+      .map(ensureLocationHumanId)
+      .map(location => ({
+        ...location,
+        sublocations: location.sublocations
+          ? [...location.sublocations].sort((a, b) => a.humanId.localeCompare(b.humanId))
+          : [],
+      }))
+      .sort((a, b) => a.humanId.localeCompare(b.humanId));
+  }, [locations]);
+  const computeNextLocationHumanId = useCallback(() => generateNextLocationHumanId(preparedLocations), [preparedLocations]);
+  const computeNextSubLocationHumanId = useCallback((parentId: string) => {
+    const parent = preparedLocations.find(location => location.id === parentId);
+    return parent ? generateNextSubLocationHumanId(parent) : '01';
+  }, [preparedLocations]);
   
   const [modalState, setModalState] = useState<ModalState>(null);
   const [deletingTarget, setDeletingTarget] = useState<DeletingTarget>(null);
+  const [imageModalState, setImageModalState] = useState<ImageModalState>(null);
   
   const [formData, setFormData] = useState<Partial<NewLocation & NewSubLocation & { parentId: string }>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -138,7 +198,9 @@ const LocationList: React.FC = () => {
     }
     setLoading(true);
     if (isOffline) {
-        const storeLocations = contextLocations.filter(l => l.storeId === currentStore.id);
+        const storeLocations = contextLocations
+          .filter(l => l.storeId === currentStore.id)
+          .map(ensureLocationHumanId);
         setLocations(storeLocations);
         setLoading(false);
     } else {
@@ -206,15 +268,59 @@ const LocationList: React.FC = () => {
   const canModifyAssignments = modalState?.type === 'edit_location' || modalState?.type === 'edit_sublocation';
  
   const handleOpenModal = (state: ModalState) => {
-      setModalState(state);
-      setErrors({});
-      if (state?.type === 'edit_location') {
-        setFormData({ name: state.location.name, description: state.location.description, humanId: state.location.humanId });
-      } else if (state?.type === 'edit_sublocation') {
-        setFormData({ name: state.subLocation.name, description: state.subLocation.description, parentId: state.parentId });
-      } else {
+    setModalState(state);
+    setErrors({});
+    setAssignmentsToRemove(new Set());
+
+    switch (state?.type) {
+      case 'add_location': {
+        const nextHumanId = computeNextLocationHumanId();
+        setFormData({
+          name: '',
+          description: '',
+          humanId: nextHumanId,
+          storeId: currentStore?.id,
+          imageUrl: null,
+        });
+        break;
+      }
+      case 'edit_location': {
+        const ensured = ensureLocationHumanId(state.location);
+        setFormData({
+          name: ensured.name,
+          description: ensured.description,
+          humanId: ensured.humanId,
+          storeId: ensured.storeId,
+          imageUrl: ensured.imageUrl ?? null,
+        });
+        break;
+      }
+      case 'add_sublocation': {
+        const defaultParentId = preparedLocations[0]?.id || '';
+        const nextHumanId = defaultParentId ? computeNextSubLocationHumanId(defaultParentId) : '';
+        setFormData({
+          parentId: defaultParentId,
+          humanId: nextHumanId,
+          name: '',
+          description: '',
+          imageUrl: null,
+        });
+        break;
+      }
+      case 'edit_sublocation': {
+        setFormData({
+          parentId: state.parentId,
+          humanId: state.subLocation.humanId,
+          name: state.subLocation.name,
+          description: state.subLocation.description,
+          imageUrl: state.subLocation.imageUrl ?? null,
+        });
+        break;
+      }
+      default: {
         setFormData({});
       }
+    }
   };
 
   const handleCloseModal = () => {
@@ -222,27 +328,46 @@ const LocationList: React.FC = () => {
     setAssignmentsToRemove(new Set());
   };
 
+  const handleImageModalClose = () => {
+    setImageModalState(null);
+  };
+
+  const handleImageModalCompleted = (updatedLocation: Location) => {
+    setLocations(prev =>
+      prev.map(loc => (loc.id === updatedLocation.id ? ensureLocationHumanId(updatedLocation) : loc)),
+    );
+
+    if (modalState?.type === 'edit_location' && modalState.location.id === updatedLocation.id) {
+      setFormData(prev => ({ ...prev, imageUrl: updatedLocation.imageUrl ?? null }));
+    }
+
+    if (modalState?.type === 'edit_sublocation' && modalState.parentId === updatedLocation.id) {
+      const updatedSub = updatedLocation.sublocations?.find(sub => sub.id === modalState.subLocation.id);
+      if (updatedSub) {
+        setFormData(prev => ({ ...prev, imageUrl: updatedSub.imageUrl ?? null }));
+      }
+    }
+
+    setImageModalState(null);
+  };
+
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
-    if (!formData.name?.trim()) newErrors.name = t('common.required');
+    const trimmedName = formData.name?.trim();
+    const requiresLocationName = modalState?.type === 'add_location' || modalState?.type === 'edit_location';
 
-    if(modalState?.type === 'add_location' || modalState?.type === 'edit_location') {
-        if (!formData.humanId?.trim()) {
-            newErrors.humanId = t('common.required');
-        } else {
-            const isDuplicate = locations.some(loc => 
-                loc.humanId.toLowerCase() === formData.humanId?.toLowerCase() &&
-                (modalState?.type === 'edit_location' ? loc.id !== modalState.location.id : true)
-            );
-            if (isDuplicate) {
-                newErrors.humanId = t('locations.managementId.duplicateError');
-            }
-        }
+    if (requiresLocationName && !trimmedName) {
+        newErrors.name = t('common.required');
+    }
+
+    if ((modalState?.type === 'add_location' || modalState?.type === 'edit_location') && !formData.humanId) {
+        newErrors.humanId = t('common.required');
     }
 
     if (modalState?.type === 'add_sublocation' && !formData.parentId) {
         newErrors.parentId = t('common.required');
     }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -253,40 +378,78 @@ const LocationList: React.FC = () => {
     try {
         let needsRefetch = false;
         switch(modalState.type) {
-            case 'add_location':
-                const newLoc: NewLocation = { name: formData.name!, humanId: formData.humanId!, description: formData.description || '', storeId: currentStore.id };
-                isOffline ? await addLocation(newLoc) : (await api.addLocation(newLoc), needsRefetch = true);
+            case 'add_location': {
+                const trimmedName = formData.name?.trim() || '';
+                const payload: NewLocation = {
+                    name: trimmedName,
+                    description: formData.description?.trim() || '',
+                    storeId: currentStore.id,
+                };
+                if (formData.humanId) {
+                    payload.humanId = formData.humanId;
+                }
+                if (isOffline) {
+                    await addLocation(payload);
+                } else {
+                    await api.addLocation(payload);
+                    needsRefetch = true;
+                }
                 break;
-            case 'add_sublocation':
-                const newSub: NewSubLocation = { name: formData.name!, description: formData.description || '', humanId: '' }; // humanId is generated in context/api
-                isOffline ? await addSubLocation(formData.parentId!, newSub) : (await api.addSubLocation(formData.parentId!, newSub), needsRefetch = true);
-                break;
-            case 'edit_location':
-                const locData: Partial<NewLocation> = { name: formData.name, humanId: formData.humanId, description: formData.description };
-                isOffline ? await updateLocation(modalState.location.id, locData) : (await api.updateLocation(modalState.location.id, locData), needsRefetch = true);
-                break;
-            case 'edit_sublocation':
-                // humanId for sublocation is not editable from this modal
-                const subData: SubLocation = { ...modalState.subLocation, name: formData.name!, description: formData.description || '' };
-                isOffline ? await updateSubLocation(modalState.parentId, subData) : (await api.updateSubLocation(modalState.parentId, subData), needsRefetch = true);
-                break;
-        }
-        
-        const assignmentsMarkedForRemoval = Array.from(assignmentsToRemove);
-        if (assignmentsMarkedForRemoval.length > 0) {
-            const persistentIds = assignmentsMarkedForRemoval.filter(id => !id.startsWith('new-'));
-            if (!isOffline && persistentIds.length > 0) {
-                await api.deleteStocktakes(persistentIds);
             }
-            removeStocktakes(assignmentsMarkedForRemoval);
-            setAssignmentsToRemove(new Set());
+            case 'add_sublocation': {
+                const parentId = formData.parentId!;
+                const payload: NewSubLocation = {
+                    name: formData.name?.trim() || '',
+                    description: formData.description?.trim() || '',
+                };
+                if (formData.humanId) {
+                    payload.humanId = formData.humanId;
+                }
+                if (isOffline) {
+                    await addSubLocation(parentId, payload);
+                } else {
+                    await api.addSubLocation(parentId, payload);
+                    needsRefetch = true;
+                }
+                break;
+            }
+            case 'edit_location': {
+                const payload: Partial<NewLocation> = {
+                    name: formData.name?.trim(),
+                    description: formData.description?.trim() || '',
+                };
+                if (isOffline) {
+                    await updateLocation(modalState.location.id, payload);
+                } else {
+                    await api.updateLocation(modalState.location.id, payload);
+                    needsRefetch = true;
+                }
+                break;
+            }
+            case 'edit_sublocation': {
+                const subData: SubLocation = {
+                    ...modalState.subLocation,
+                    name: formData.name?.trim() || '',
+                    description: formData.description?.trim() || '',
+                };
+                if (isOffline) {
+                    await updateSubLocation(modalState.parentId, subData);
+                } else {
+                    await api.updateSubLocation(modalState.parentId, subData);
+                    needsRefetch = true;
+                }
+                break;
+            }
         }
-
         if (needsRefetch) fetchAndSetLocations();
         handleCloseModal();
-    } catch (e) {
-        console.error("Failed to save location", e);
-        setErrors({ form: "Failed to save location." });
+    } catch (error) {
+        console.error("Failed to save location", error);
+        if (error instanceof Error && error.message === 'LOCATION_HUMAN_ID_ALREADY_EXISTS') {
+            setErrors({ humanId: t('locations.managementId.duplicateError') });
+        } else {
+            setErrors({ form: t('toast.saveError') });
+        }
     }
   };
 
@@ -337,23 +500,26 @@ const LocationList: React.FC = () => {
       {canEdit && (
         <div className="flex justify-end gap-2 mb-4">
             <Button onClick={() => handleOpenModal({type: 'add_location'})}>{t('locations.addLocation')}</Button>
-            {locations.length > 0 && (
+            {preparedLocations.length > 0 && (
                 <Button onClick={() => handleOpenModal({type: 'add_sublocation'})} variant="secondary">{t('locations.addSubLocation')}</Button>
             )}
         </div>
       )}
       {loading ? <Spinner /> : (
-          locations.length > 0 ? (
+          preparedLocations.length > 0 ? (
             <div className="border rounded-lg dark:border-gray-700">
-                {locations.map(location => (
+                {preparedLocations.map(location => (
                     <LocationRow 
                         key={location.id} 
                         location={location} 
                         canEdit={canEdit}
+                        isOffline={isOffline}
                         onEditLocation={(loc) => handleOpenModal({type: 'edit_location', location: loc})}
                         onDeleteLocation={(loc) => handleDelete({id: loc.id, name: loc.name, isSub: false})}
                         onEditSubLocation={(sub, parentId, parentHumanId) => handleOpenModal({type: 'edit_sublocation', subLocation: sub, parentId, parentHumanId})}
                         onDeleteSubLocation={(sub, parentId) => handleDelete({id: sub.id, name: sub.name, isSub: true, parentId})}
+                        onManageLocationImage={(loc) => setImageModalState({ kind: 'location', location: loc })}
+                        onManageSubLocationImage={(sub, parent) => setImageModalState({ kind: 'sublocation', location: parent, subLocation: sub })}
                     />
                 ))}
             </div>
@@ -397,26 +563,30 @@ const LocationList: React.FC = () => {
                 <Select
                     label={t('locations.selectParent')}
                     value={formData.parentId || ''}
-                    onChange={e => setFormData(p => ({ ...p, parentId: e.target.value }))}
+                    onChange={e => {
+                      const nextParentId = e.target.value;
+                      const nextHumanId = computeNextSubLocationHumanId(nextParentId);
+                      setFormData(p => ({ ...p, parentId: nextParentId, humanId: nextHumanId }));
+                    }}
                     error={errors.parentId}
                     disabled={modalState.type === 'edit_sublocation'}
                 >
                     <option value="" disabled>-- Select --</option>
-                    {locations.map(loc => (
+                    {preparedLocations.map(loc => (
                         <option key={loc.id} value={loc.id}>[{loc.humanId}] {loc.name}</option>
                     ))}
                 </Select>
             )}
-             {(modalState?.type === 'add_location' || modalState?.type === 'edit_location') && (
-                <Input 
-                    label={t('locations.managementId')}
-                    value={formData.humanId || ''}
-                    onChange={e => setFormData(p => ({...p, humanId: e.target.value.toUpperCase()}))}
-                    placeholder={t('locations.managementId.placeholder')}
-                    error={errors.humanId}
-                    maxLength={5}
-                />
-             )}
+            {(modalState?.type === 'add_location' || modalState?.type === 'edit_location') && (
+              <Input
+                label={t('locations.managementId')}
+                value={formData.humanId || ''}
+                onChange={e => setFormData(p => ({ ...p, humanId: e.target.value.toUpperCase() }))}
+                placeholder={t('locations.managementId.placeholder')}
+                error={errors.humanId}
+                maxLength={5}
+              />
+            )}
             <Input 
                 label={t('common.name')}
                 value={formData.name || ''}
@@ -470,6 +640,18 @@ const LocationList: React.FC = () => {
                 : t('locations.delete.confirm.parentMessage', { name: deletingTarget?.name })}
         </p>
     </ConfirmationModal>
+    {imageModalState && (
+      <LocationImageModal
+        isOpen
+        target={imageModalState}
+        onClose={handleImageModalClose}
+        isOffline={isOffline}
+        showToast={showToast}
+        onCompleted={handleImageModalCompleted}
+        updateLocation={updateLocation}
+        updateSubLocation={updateSubLocation}
+      />
+    )}
     </>
   );
 };

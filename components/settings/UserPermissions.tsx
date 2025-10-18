@@ -1,5 +1,5 @@
-
-import React, { useEffect, useState, useContext } from 'react';
+﻿
+import React, { useEffect, useState, useContext, useMemo, useCallback } from 'react';
 import { AuthContext } from '../../contexts/AuthContext';
 import { AppContext } from '../../contexts/AppContext';
 import { api } from '../../services/api';
@@ -9,18 +9,197 @@ import Card from '../ui/Card';
 import { Table, TableRow, TableCell } from '../ui/Table';
 import InviteManager from './InviteManager';
 import Select from '../ui/Select';
+import { ensureItemHumanId } from '../../lib/items';
 import Spinner from '../ui/Spinner';
+import Button from '../ui/Button';
+
+const MAX_INVITES_PER_BATCH = 20;
+
+const formatCsvValue = (value: unknown): string => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  const stringValue = String(value);
+  return /[",\r\n]/.test(stringValue)
+    ? `"${stringValue.replace(/"/g, '""')}"`
+    : stringValue;
+};
+
+const createCsvContent = (headers: string[], rows: (unknown[])[]): string => {
+  const headerLine = headers.map(formatCsvValue).join(',');
+  const dataLines = rows.map(row => row.map(formatCsvValue).join(','));
+  return [headerLine, ...dataLines].join('\r\n');
+};
+
+const downloadCsvFile = (filename: string, csvContent: string) => {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
 
 const UserPermissions: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useContext(AuthContext);
-  const { showToast } = useContext(AppContext);
+  const { showToast, items, locations, stocktakes } = useContext(AppContext);
   const [users, setUsers] = useState<User[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [invitesLoading, setInvitesLoading] = useState(true);
   const [loading, setLoading] = useState(true);
+
+  const storeNameById = useMemo(() => {
+    return new Map(stores.map(store => [store.id, store.name]));
+  }, [stores]);
+
+  const handleExportItems = useCallback(() => {
+    const headers = [
+      'itemId',
+      'humanId',
+      'nameJa',
+      'nameEn',
+      'shortName',
+      'description',
+      'sku',
+      'costA',
+      'costB',
+      'supplier',
+      'imageUrl',
+      'categoryId',
+    ];
+
+    const normalizedItems = items.map(item => ensureItemHumanId(item));
+
+    const rows = normalizedItems.map(item => [
+      item.id,
+      item.humanId,
+      item.name,
+      item.nameEn ?? '',
+      item.shortName,
+      item.description,
+      item.sku ?? '',
+      item.costA,
+      item.costB,
+      item.supplier ?? '',
+      item.imageUrl ?? '',
+      item.categoryId ?? '',
+    ]);
+
+    const csvContent = createCsvContent(headers, rows);
+    downloadCsvFile('items.csv', csvContent);
+  }, [items]);
+
+  const handleExportLocations = useCallback(() => {
+    const headers = [
+      'storeId',
+      'storeName',
+      'locationId',
+      'locationHumanId',
+      'locationName',
+      'locationDescription',
+      'subLocationId',
+      'subLocationHumanId',
+      'subLocationName',
+      'subLocationDescription',
+    ];
+
+    const rows: (unknown[])[] = [];
+    locations.forEach(location => {
+      const storeName = storeNameById.get(location.storeId) ?? '';
+
+      if (location.sublocations && location.sublocations.length > 0) {
+        location.sublocations.forEach(sub => {
+          rows.push([
+            location.storeId,
+            storeName,
+            location.id,
+            location.humanId,
+            location.name,
+            location.description ?? '',
+            sub.id,
+            sub.humanId,
+            sub.name,
+            sub.description ?? '',
+          ]);
+        });
+      } else {
+        rows.push([
+          location.storeId,
+          storeName,
+          location.id,
+          location.humanId,
+          location.name,
+          location.description ?? '',
+          '',
+          '',
+          '',
+          '',
+        ]);
+      }
+    });
+
+    const csvContent = createCsvContent(headers, rows);
+    downloadCsvFile('locations.csv', csvContent);
+  }, [locations, storeNameById]);
+
+  const handleExportAssignments = useCallback(() => {
+    const headers = [
+      'stocktakeId',
+      'storeId',
+      'storeName',
+      'itemId',
+      'itemNameJa',
+      'itemNameEn',
+      'locationId',
+      'locationHumanId',
+      'locationName',
+      'subLocationId',
+      'subLocationHumanId',
+      'subLocationName',
+      'lastCount',
+      'lastCountedAt',
+      'note',
+    ];
+
+    const locationById = new Map(locations.map(location => [location.id, location]));
+    const itemById = new Map(items.map(item => [item.id, item]));
+
+    const rows = stocktakes.map(stocktake => {
+      const storeName = storeNameById.get(stocktake.storeId) ?? '';
+      const location = locationById.get(stocktake.locationId);
+      const subLocation = stocktake.subLocationId
+        ? location?.sublocations?.find(sub => sub.id === stocktake.subLocationId)
+        : undefined;
+      const item = itemById.get(stocktake.itemId);
+
+      return [
+        stocktake.id,
+        stocktake.storeId,
+        storeName,
+        stocktake.itemId,
+        item?.name ?? '',
+        item?.nameEn ?? '',
+        stocktake.locationId,
+        location?.humanId ?? '',
+        location?.name ?? '',
+        stocktake.subLocationId ?? '',
+        subLocation?.humanId ?? '',
+        subLocation?.name ?? '',
+        stocktake.lastCount,
+        stocktake.lastCountedAt,
+        stocktake.description ?? '',
+      ];
+    });
+
+    const csvContent = createCsvContent(headers, rows);
+    downloadCsvFile('item-assignments.csv', csvContent);
+  }, [items, locations, stocktakes, storeNameById]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -74,13 +253,16 @@ const UserPermissions: React.FC = () => {
     });
   };
 
-  const handleCreateInvite = async (payload: NewInvite): Promise<void> => {
+  const handleCreateInvites = async (payload: NewInvite, count: number): Promise<Invite[]> => {
     try {
-      const invite = await api.createInvite(payload);
-      setInvites(prev => [invite, ...prev]);
-      showToast(t('settings.invites.create.success'));
+      const invitesCreated = await api.createInvites(payload, count);
+      if (invitesCreated.length > 0) {
+        setInvites(prev => [...invitesCreated, ...prev]);
+      }
+      showToast(t(count > 1 ? 'settings.invites.create.bulkSuccess' : 'settings.invites.create.success', { count }));
+      return invitesCreated;
     } catch (error) {
-      console.error('Failed to create invite', error);
+      console.error('Failed to create invites', error);
       showToast(t('settings.invites.create.error'), 'error');
       throw error;
     }
@@ -104,6 +286,14 @@ const UserPermissions: React.FC = () => {
 
   return (
     <>
+      <Card title={t('settings.export.title')}>
+        <p className="mb-4 text-gray-600 dark:text-gray-400">{t('settings.export.description')}</p>
+        <div className="flex flex-wrap gap-3">
+          <Button onClick={handleExportItems}>{t('settings.export.items')}</Button>
+          <Button variant="secondary" onClick={handleExportLocations}>{t('settings.export.locations')}</Button>
+          <Button variant="secondary" onClick={handleExportAssignments}>{t('settings.export.assignments')}</Button>
+        </div>
+      </Card>
       <Card title={t('settings.title')}>
         <p className="mb-4 text-gray-600 dark:text-gray-400">{t('settings.description')}</p>
         {loading ? <Spinner /> : (
@@ -150,8 +340,9 @@ const UserPermissions: React.FC = () => {
         stores={stores}
         invites={invites}
         loading={invitesLoading}
-        onCreateInvite={handleCreateInvite}
+        onCreateInvites={handleCreateInvites}
         onRevokeInvite={handleRevokeInvite}
+        maxBulkCount={MAX_INVITES_PER_BATCH}
       />
     </>
   );

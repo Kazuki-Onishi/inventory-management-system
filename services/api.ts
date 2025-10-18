@@ -1,6 +1,14 @@
-﻿
+
 import { User, Store, Permission, Role, Item, Location, Stocktake, NewStore, NewItem, NewLocation, NewSubLocation, SubLocation, Category, NewCategory, Invite, InviteStatus, NewInvite } from '../types';
+import { ensureLocationHumanId, generateNextLocationHumanId, generateNextSubLocationHumanId } from '../lib/locations';
+import { deriveHumanIdFromId, ensureItemHumanId } from '../lib/items';
 import { db, auth, googleProvider } from './firebase';
+import {
+  deleteImageByUrl,
+  uploadItemImageToStorage,
+  uploadLocationImageToStorage,
+  uploadSubLocationImageToStorage,
+} from './storage';
 import { signInWithPopup, User as FirebaseUser } from 'firebase/auth';
 import {
   collection,
@@ -57,6 +65,31 @@ function toInvite(id: string, data: any): Invite {
 }
 
 
+
+async function createInviteInternal(input: NewInvite): Promise<Invite> {
+  let code = generateInviteCode();
+  let inviteRef = doc(db, 'invites', code);
+  let existing = await getDoc(inviteRef);
+  while (existing.exists()) {
+    code = generateInviteCode();
+    inviteRef = doc(db, 'invites', code);
+    existing = await getDoc(inviteRef);
+  }
+  const normalizedEmail = normalizeEmail(input.email) ?? null;
+  const payload = {
+    code,
+    storeId: input.storeId,
+    role: input.role,
+    canViewCost: input.canViewCost,
+    createdBy: auth.currentUser?.uid || 'system',
+    createdAt: nowIsoString(),
+    status: 'pending',
+    email: normalizedEmail,
+    expiresAt: input.expiresAt ?? null,
+  };
+  await setDoc(inviteRef, payload);
+  return toInvite(inviteRef.id, payload);
+}
 
 export const api = {
   loginWithGoogle: async (): Promise<User> => {
@@ -209,28 +242,23 @@ export const api = {
   },
 
   createInvite: async (input: NewInvite): Promise<Invite> => {
-    let code = generateInviteCode();
-    let inviteRef = doc(db, 'invites', code);
-    let existing = await getDoc(inviteRef);
-    while (existing.exists()) {
-      code = generateInviteCode();
-      inviteRef = doc(db, 'invites', code);
-      existing = await getDoc(inviteRef);
+    return createInviteInternal(input);
+  },
+
+  createInvites: async (input: NewInvite, count: number): Promise<Invite[]> => {
+    const MAX_COUNT = 20;
+    if (!Number.isInteger(count) || count < 1) {
+      throw new Error('Invite count must be a positive integer');
     }
-    const normalizedEmail = normalizeEmail(input.email) ?? null;
-    const payload = {
-      code,
-      storeId: input.storeId,
-      role: input.role,
-      canViewCost: input.canViewCost,
-      createdBy: auth.currentUser?.uid || 'system',
-      createdAt: nowIsoString(),
-      status: 'pending',
-      email: normalizedEmail,
-      expiresAt: input.expiresAt ?? null,
-    };
-    await setDoc(inviteRef, payload);
-    return toInvite(inviteRef.id, payload);
+    if (count > MAX_COUNT) {
+      throw new Error(`Invite count may not exceed ${MAX_COUNT}`);
+    }
+    const invites: Invite[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const invite = await createInviteInternal(input);
+      invites.push(invite);
+    }
+    return invites;
   },
 
   revokeInvite: async (code: string): Promise<void> => {
@@ -313,12 +341,14 @@ export const api = {
   fetchItems: async (): Promise<Item[]> => {
     const snapshot = await getDocs(collection(db, 'items'));
     return snapshot.docs.map((docSnap) => {
-      const data = docSnap.data() as Omit<Item, 'id'> & { categoryId?: string | null };
-      return {
+      const data = docSnap.data() as Omit<Item, 'id'> & { categoryId?: string | null; imageUrl?: string | null; humanId?: string | null };
+      const item: Item = {
         ...data,
         id: docSnap.id,
         categoryId: data.categoryId ?? null,
-      };
+        imageUrl: data.imageUrl ?? null,
+      } as Item;
+      return ensureItemHumanId(item);
     });
   },
 
@@ -327,7 +357,7 @@ export const api = {
   fetchLocationsByStore: async (storeId: string): Promise<Location[]> => {
     const locationsQuery = query(collection(db, 'locations'), where('storeId', '==', storeId));
     const querySnapshot = await getDocs(locationsQuery);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Location));
+    return querySnapshot.docs.map(doc => ensureLocationHumanId({ id: doc.id, ...doc.data() } as Location));
   },
   
   fetchStocktakesByStore: async (storeId: string): Promise<Stocktake[]> => {
@@ -367,9 +397,18 @@ export const api = {
   },
 
   addItem: async (newItem: NewItem): Promise<Item> => {
+    const docRef = doc(collection(db, 'items'));
     const normalizedName = newItem.name.toLowerCase().replace(/\s+/g, '_');
-    const itemToAdd = { ...newItem, normalizedName };
-    const docRef = await addDoc(collection(db, 'items'), itemToAdd);
+    const providedHumanId = newItem.humanId && newItem.humanId.trim().length > 0 ? newItem.humanId : null;
+    const humanId = providedHumanId ?? deriveHumanIdFromId(docRef.id);
+    const itemToAdd = {
+      ...newItem,
+      humanId,
+      normalizedName,
+      categoryId: newItem.categoryId ?? null,
+      imageUrl: newItem.imageUrl ?? null,
+    };
+    await setDoc(docRef, itemToAdd);
     return { ...itemToAdd, id: docRef.id };
   },
 
@@ -379,33 +418,61 @@ export const api = {
   },
 
   addLocation: async (newLocation: NewLocation): Promise<Location> => {
-    const locationToAdd = { ...newLocation, sublocations: [] };
+    const storeId = newLocation.storeId;
+    const providedHumanId = newLocation.humanId?.trim().toUpperCase();
+
+    const locationsQuery = query(collection(db, 'locations'), where('storeId', '==', storeId));
+    const existingSnapshot = await getDocs(locationsQuery);
+    const existingLocations = existingSnapshot.docs.map(doc => ensureLocationHumanId({ id: doc.id, ...doc.data() } as Location));
+
+    let humanId = providedHumanId;
+    if (humanId) {
+      const duplicate = existingLocations.some(location => location.humanId === humanId);
+      if (duplicate) {
+        throw new Error('LOCATION_HUMAN_ID_ALREADY_EXISTS');
+      }
+    } else {
+      humanId = generateNextLocationHumanId(existingLocations);
+    }
+
+    const locationToAdd = {
+      name: newLocation.name.trim(),
+      humanId,
+      description: newLocation.description || '',
+      storeId,
+      imageUrl: newLocation.imageUrl ?? null,
+      sublocations: [],
+    };
+
     const docRef = await addDoc(collection(db, 'locations'), locationToAdd);
     return { ...locationToAdd, id: docRef.id };
   },
 
   addSubLocation: async (locationId: string, newSubLocation: NewSubLocation): Promise<Location> => {
     const locationRef = doc(db, 'locations', locationId);
-    
+
     return await runTransaction(db, async (transaction) => {
         const locationDoc = await transaction.get(locationRef);
         if (!locationDoc.exists()) {
             throw new Error("Parent location not found");
         }
-        
-        const parentLocation = {id: locationDoc.id, ...locationDoc.data()} as Location;
+
+        const parentLocation = ensureLocationHumanId({ id: locationDoc.id, ...locationDoc.data() } as Location);
         const sublocations = parentLocation.sublocations || [];
-        
-        const existingIds = sublocations.map(s => parseInt(s.humanId, 10)).filter(n => !isNaN(n));
-        const maxId = Math.max(0, ...existingIds);
-        const newHumanId = String(maxId + 1).padStart(2, '0');
-        
+
+        const newHumanId = generateNextSubLocationHumanId(parentLocation);
         const newId = doc(collection(db, '_')).id;
-        const subLocationWithIds = { ...newSubLocation, id: newId, humanId: newHumanId };
-        
+        const subLocationWithIds = {
+          id: newId,
+          humanId: newHumanId,
+          name: newSubLocation.name?.trim() || '',
+          description: newSubLocation.description || '',
+          imageUrl: newSubLocation.imageUrl ?? null,
+        } as SubLocation;
+
         const updatedSublocations = [...sublocations, subLocationWithIds];
         transaction.update(locationRef, { sublocations: updatedSublocations });
-        
+
         return { ...parentLocation, sublocations: updatedSublocations };
     });
   },
@@ -413,7 +480,14 @@ export const api = {
   // --- Update existing data ---
   updateItem: async (item: Item): Promise<void> => {
     const itemRef = doc(db, 'items', item.id);
-    const { id, ...itemToUpdate } = item;
+    const { id, ...rest } = item;
+    const normalizedName = item.name.toLowerCase().replace(/\s+/g, '_');
+    const itemToUpdate = {
+      ...rest,
+      normalizedName,
+      categoryId: rest.categoryId ?? null,
+      imageUrl: rest.imageUrl ?? null,
+    };
     await updateDoc(itemRef, itemToUpdate as { [x: string]: any });
   },
 
@@ -424,7 +498,11 @@ export const api = {
 
   updateLocation: async (locationId: string, data: Partial<NewLocation>): Promise<void> => {
     const locationRef = doc(db, 'locations', locationId);
-    await updateDoc(locationRef, data);
+    const payload: Record<string, unknown> = { ...data };
+    if (Object.prototype.hasOwnProperty.call(data, 'imageUrl')) {
+      payload.imageUrl = data.imageUrl ?? null;
+    }
+    await updateDoc(locationRef, payload);
   },
 
   updateSubLocation: async (parentId: string, subLocation: SubLocation): Promise<Location> => {
@@ -433,12 +511,39 @@ export const api = {
     if (!parentDoc.exists()) throw new Error("Parent location not found");
 
     const parentLocation = { id: parentDoc.id, ...parentDoc.data() } as Location;
-    const sublocations = parentLocation.sublocations?.map(sub => 
-      sub.id === subLocation.id ? subLocation : sub
+    const sublocations = parentLocation.sublocations?.map(sub =>
+      sub.id === subLocation.id ? { ...sub, ...subLocation, imageUrl: subLocation.imageUrl ?? null } : sub
     ) || [];
 
     await updateDoc(locationRef, { sublocations });
     return { ...parentLocation, sublocations };
+  },
+
+  uploadItemImage: async (itemId: string, file: File): Promise<string> => {
+    const { downloadUrl } = await uploadItemImageToStorage(itemId, file);
+    return downloadUrl;
+  },
+
+  deleteItemImage: async (imageUrl: string | null | undefined): Promise<void> => {
+    await deleteImageByUrl(imageUrl);
+  },
+
+  uploadLocationImage: async (locationId: string, file: File): Promise<string> => {
+    const { downloadUrl } = await uploadLocationImageToStorage(locationId, file);
+    return downloadUrl;
+  },
+
+  uploadSubLocationImage: async (locationId: string, subLocationId: string, file: File): Promise<string> => {
+    const { downloadUrl } = await uploadSubLocationImageToStorage(locationId, subLocationId, file);
+    return downloadUrl;
+  },
+
+  deleteLocationImage: async (imageUrl: string | null | undefined): Promise<void> => {
+    await deleteImageByUrl(imageUrl);
+  },
+
+  deleteSubLocationImage: async (imageUrl: string | null | undefined): Promise<void> => {
+    await deleteImageByUrl(imageUrl);
   },
 
   // --- Delete data ---
@@ -484,3 +589,8 @@ export const api = {
     await updateDoc(locationRef, { sublocations });
   },
 };
+
+
+
+
+

@@ -9,8 +9,9 @@ import Input from '../ui/Input';
 import { Table, TableRow, TableCell } from '../ui/Table';
 import Button from '../ui/Button';
 import Spinner from '../ui/Spinner';
+import Modal from '../ui/Modal';
 import { ICONS } from '../../constants';
-import { classNames, getItemDisplayName } from '../../lib/utils';
+import { classNames, createSearchTerms, getItemDisplayName, matchesSearch } from '../../lib/utils';
 
 type ViewMode = 'location' | 'item';
 type ActiveTab = 'assignment' | 'count';
@@ -18,27 +19,38 @@ type ActiveTab = 'assignment' | 'count';
 const LocationNode: React.FC<{
   location: Location;
   selectedId: string | null;
+  selectedIsSub: boolean;
   onSelect: (id: string, isSub: boolean) => void;
   onHide: (id: string) => void;
   hideLabel: string;
   hideHint: string;
-}> = ({ location, selectedId, onSelect, onHide, hideLabel, hideHint }) => {
+}> = ({ location, selectedId, selectedIsSub, onSelect, onHide, hideLabel, hideHint }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const hasSublocations = location.sublocations && location.sublocations.length > 0;
+  const hasSublocations = !!(location.sublocations && location.sublocations.length > 0);
+  const isActive = selectedIsSub
+    ? location.sublocations?.some((sub) => sub.id === selectedId)
+    : selectedId === location.id;
+
+  const handleLocationClick = () => {
+    if (hasSublocations && location.sublocations?.length) {
+      setIsOpen(true);
+      const firstVisibleSub = location.sublocations.find(() => true);
+      if (firstVisibleSub) {
+        onSelect(firstVisibleSub.id, true);
+      }
+    } else {
+      onSelect(location.id, false);
+    }
+  };
 
   return (
     <div>
       <div
         className={classNames(
           'flex items-center justify-between p-2 rounded-md cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700',
-          selectedId === location.id && 'bg-primary-100 dark:bg-primary-900/50'
+          isActive && 'bg-primary-100 dark:bg-primary-900/50'
         )}
-        onClick={() => {
-          onSelect(location.id, false);
-          if (hasSublocations) {
-            setIsOpen(true);
-          }
-        }}
+        onClick={handleLocationClick}
       >
         <div className="flex items-center">
           {hasSublocations ? (
@@ -142,12 +154,20 @@ const InventoryCount: React.FC = () => {
   const [selectedForAssignment, setSelectedForAssignment] = useState<Set<string>>(new Set());
   const [removingAssignments, setRemovingAssignments] = useState<Set<string>>(new Set());
   const [assignmentSearch, setAssignmentSearch] = useState('');
+  const [itemSearch, setItemSearch] = useState('');
 
   const [hiddenLocationIds, setHiddenLocationIds] = useState<Set<string>>(new Set());
   const [hiddenItemIds, setHiddenItemIds] = useState<Set<string>>(new Set());
   const [showHiddenLocations, setShowHiddenLocations] = useState(false);
   const [showHiddenItems, setShowHiddenItems] = useState(false);
   const [isSelectionPanelOpen, setIsSelectionPanelOpen] = useState(false);
+  const [memoModal, setMemoModal] = useState<{ stocktake: Stocktake & Partial<{ itemName: string; locationName: string }> } | null>(null);
+  const [memoValue, setMemoValue] = useState('');
+  const [memoSavingId, setMemoSavingId] = useState<string | null>(null);
+  const [memoError, setMemoError] = useState<string | null>(null);
+
+  const assignmentSearchTerms = useMemo(() => createSearchTerms(assignmentSearch), [assignmentSearch]);
+  const itemSearchTerms = useMemo(() => createSearchTerms(itemSearch), [itemSearch]);
 
   const isMobileViewport = useCallback(() => typeof window !== 'undefined' && window.innerWidth < 768, []);
   const openSelectionPanelOnMobile = useCallback(() => {
@@ -169,6 +189,13 @@ const InventoryCount: React.FC = () => {
     openSelectionPanelOnMobile();
   }, [viewMode, openSelectionPanelOnMobile]);
 
+  useEffect(() => {
+    setMemoModal(null);
+    setMemoValue('');
+    setMemoSavingId(null);
+    setMemoError(null);
+  }, [currentStore, selectedId, viewMode]);
+
   const stockableItems = useMemo(() => allItems.filter((item) => !item.isDiscontinued), [allItems]);
 
   const { locationsInStore, stocktakesInStore } = useMemo(() => {
@@ -182,16 +209,65 @@ const InventoryCount: React.FC = () => {
     return { locationsInStore: locations, stocktakesInStore: stocktakes };
   }, [currentStore, allLocations, allStocktakes]);
 
+  const locale = language === 'ja' ? 'ja-JP' : 'en-US';
+  const formatTimestamp = useCallback(
+    (value?: string | null) => {
+      if (!value) return t('inventory.lastCountDate.none');
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return value;
+      }
+      try {
+        return new Intl.DateTimeFormat(locale, {
+          year: 'numeric',
+          month: 'short',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        }).format(date);
+      } catch (error) {
+        console.warn('Failed to format timestamp', error);
+        return date.toLocaleString();
+      }
+    },
+    [locale, t],
+  );
+
+  const sanitizeStocktake = useCallback((stocktake: Stocktake & Partial<{ itemName: string; locationName: string }>): Stocktake => {
+    const { itemName: _itemName, locationName: _locationName, ...rest } = stocktake as Record<string, unknown>;
+    return rest as Stocktake;
+  }, []);
+
   const visibleLocations = useMemo(() => {
     return locationsInStore
       .filter((location) => !hiddenLocationIds.has(location.id))
-      .map((location) => ({
-        ...location,
-        sublocations: location.sublocations?.filter((sub) => !hiddenLocationIds.has(sub.id)),
-      }));
+      .map((location) => {
+        const filteredSubs = location.sublocations?.filter((sub) => !hiddenLocationIds.has(sub.id)) ?? [];
+        const sortedSubs = [...filteredSubs].sort((a, b) => a.humanId.localeCompare(b.humanId));
+        return {
+          ...location,
+          sublocations: sortedSubs,
+        };
+      })
+      .sort((a, b) => a.humanId.localeCompare(b.humanId));
   }, [locationsInStore, hiddenLocationIds]);
 
-  const visibleItems = useMemo(() => stockableItems.filter((item) => !hiddenItemIds.has(item.id)), [stockableItems, hiddenItemIds]);
+  const visibleItems = useMemo(() => {
+    return stockableItems
+      .filter((item) => !hiddenItemIds.has(item.id))
+      .filter((item) =>
+        matchesSearch(
+          [
+            getItemDisplayName(item, language),
+            item.humanId,
+            item.sku,
+            item.shortName,
+            item.description,
+          ],
+          itemSearchTerms,
+        )
+      );
+  }, [stockableItems, hiddenItemIds, itemSearchTerms, language]);
 
   const hiddenLocationsList = useMemo(() => {
     const entries: { id: string; label: string }[] = [];
@@ -214,6 +290,9 @@ const InventoryCount: React.FC = () => {
       .map((item) => ({ id: item.id, label: getItemDisplayName(item, language) }));
   }, [stockableItems, hiddenItemIds, language]);
 
+  const locationById = useMemo(() => new Map(locationsInStore.map((location) => [location.id, location])), [locationsInStore]);
+  const itemById = useMemo(() => new Map(allItems.map((item) => [item.id, item])), [allItems]);
+
   const ensureSelection = useCallback(() => {
     if (!currentStore) {
       setSelectedId(null);
@@ -231,8 +310,14 @@ const InventoryCount: React.FC = () => {
       }
 
       if (visibleLocations.length > 0) {
-        setSelectedId(visibleLocations[0].id);
-        setSelectedIsSub(false);
+        const firstLocation = visibleLocations[0];
+        if (firstLocation.sublocations && firstLocation.sublocations.length > 0) {
+          setSelectedId(firstLocation.sublocations[0].id);
+          setSelectedIsSub(true);
+        } else {
+          setSelectedId(firstLocation.id);
+          setSelectedIsSub(false);
+        }
       } else {
         setSelectedId(null);
         setSelectedIsSub(false);
@@ -306,6 +391,12 @@ const InventoryCount: React.FC = () => {
   useEffect(() => {
     setEditedCounts({});
   }, [currentStore, viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== 'item') {
+      setItemSearch('');
+    }
+  }, [viewMode]);
 
   useEffect(() => {
     ensureSelection();
@@ -466,6 +557,52 @@ const InventoryCount: React.FC = () => {
     [isOffline, removeStocktakes]
   );
 
+  const handleOpenMemoModal = (stocktake: Stocktake & Partial<{ itemName: string; locationName: string }>) => {
+    setMemoModal({ stocktake });
+    setMemoValue(stocktake.description ?? '');
+    setMemoError(null);
+    setMemoSavingId(null);
+  };
+
+  const handleCloseMemoModal = () => {
+    if (memoSavingId) return;
+    setMemoModal(null);
+    setMemoValue('');
+    setMemoError(null);
+  };
+
+  const handleSaveMemoModal = async () => {
+    if (!memoModal) return;
+    const trimmed = memoValue.trim();
+    const baseStocktake = sanitizeStocktake(memoModal.stocktake);
+    const updatedStocktake: Stocktake = {
+      ...baseStocktake,
+      description: trimmed.length > 0 ? trimmed : undefined,
+    };
+
+    const targetId = memoModal.stocktake.id;
+    setMemoSavingId(targetId);
+    setMemoError(null);
+    saveStocktakes([updatedStocktake]);
+
+    if (isOffline) {
+      setMemoSavingId(null);
+      setMemoModal(null);
+      return;
+    }
+
+    try {
+      await api.updateStocktakes([updatedStocktake]);
+      setMemoModal(null);
+    } catch (error) {
+      console.error('Failed to update assignment memo', error);
+      setMemoError(t('inventory.assignmentNote.error'));
+      saveStocktakes([baseStocktake]);
+    } finally {
+      setMemoSavingId(null);
+    }
+  };
+
   const renderAssignmentContent = () => {
     if (!selectedId) {
       return (
@@ -502,13 +639,19 @@ const InventoryCount: React.FC = () => {
         .filter((entry): entry is Stocktake & { itemName: string } => entry !== null);
 
       const assignedItemIds = new Set(itemsForLocation.map((stocktake) => stocktake.itemId));
-      const searchText = assignmentSearch.trim().toLowerCase();
       const availableItems = stockableItems
         .filter((item) => !assignedItemIds.has(item.id))
-        .filter((item) => {
-          if (!searchText) return true;
-          return getItemDisplayName(item, language).toLowerCase().includes(searchText);
-        });
+        .filter((item) =>
+          matchesSearch(
+            [
+              getItemDisplayName(item, language),
+              item.humanId,
+              item.sku,
+              item.shortName,
+            ],
+            assignmentSearchTerms,
+          )
+        );
 
       const locationName = formatLocationLabel(parent, subLocation);
 
@@ -538,17 +681,30 @@ const InventoryCount: React.FC = () => {
                       )}
                     </TableCell>
                     <TableCell>{stocktake.lastCount}</TableCell>
-                    <TableCell>{new Date(stocktake.lastCountedAt).toLocaleDateString()}</TableCell>
+                    <TableCell>{formatTimestamp(stocktake.lastCountedAt)}</TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        type="button"
-                        onClick={() => handleRemoveAssignment(stocktake.id)}
-                        disabled={removingAssignments.has(stocktake.id)}
-                      >
-                        {t('common.delete')}
-                      </Button>
+                      {canEdit && (
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            type="button"
+                            onClick={() => handleOpenMemoModal(stocktake)}
+                            disabled={memoSavingId !== null}
+                          >
+                            {t('inventory.assignmentNote.edit')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            type="button"
+                            onClick={() => handleRemoveAssignment(stocktake.id)}
+                            disabled={removingAssignments.has(stocktake.id)}
+                          >
+                            {t('common.delete')}
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -612,7 +768,8 @@ const InventoryCount: React.FC = () => {
             }
           : null;
       })
-      .filter((entry): entry is Stocktake & { locationName: string } => entry !== null);
+      .filter((entry): entry is Stocktake & { locationName: string } => entry !== null)
+      .sort((a, b) => a.locationName.localeCompare(b.locationName, locale));
 
     const assignedLocationKeys = new Set(
       stocktakesForItem.map((stocktake) =>
@@ -622,9 +779,6 @@ const InventoryCount: React.FC = () => {
 
     const locationOptions: { key: string; label: string }[] = [];
     visibleLocations.forEach((location) => {
-      if (!assignedLocationKeys.has(location.id)) {
-        locationOptions.push({ key: location.id, label: formatLocationLabel(location) });
-      }
       location.sublocations?.forEach((sub) => {
         const key = `${location.id}__${sub.id}`;
         if (!assignedLocationKeys.has(key)) {
@@ -632,12 +786,11 @@ const InventoryCount: React.FC = () => {
         }
       });
     });
+    locationOptions.sort((a, b) => a.label.localeCompare(b.label, locale));
 
-    const searchText = assignmentSearch.trim().toLowerCase();
-    const availableLocations = locationOptions.filter((option) => {
-      if (!searchText) return true;
-      return option.label.toLowerCase().includes(searchText);
-    });
+    const availableLocations = locationOptions.filter((option) =>
+      matchesSearch([option.label], assignmentSearchTerms)
+    );
 
     return (
       <div className="space-y-6">
@@ -665,18 +818,31 @@ const InventoryCount: React.FC = () => {
                     )}
                   </TableCell>
                   <TableCell>{stocktake.lastCount}</TableCell>
-                  <TableCell>{new Date(stocktake.lastCountedAt).toLocaleDateString()}</TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        type="button"
-                        onClick={() => handleRemoveAssignment(stocktake.id)}
-                        disabled={removingAssignments.has(stocktake.id)}
-                      >
-                        {t('common.delete')}
-                      </Button>
-                    </TableCell>
+                  <TableCell>{formatTimestamp(stocktake.lastCountedAt)}</TableCell>
+                  <TableCell className="text-right">
+                    {canEdit && (
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          type="button"
+                          onClick={() => handleOpenMemoModal(stocktake)}
+                          disabled={memoSavingId !== null}
+                        >
+                          {t('inventory.assignmentNote.edit')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          type="button"
+                          onClick={() => handleRemoveAssignment(stocktake.id)}
+                          disabled={removingAssignments.has(stocktake.id)}
+                        >
+                          {t('common.delete')}
+                        </Button>
+                      </div>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </Table>
@@ -720,6 +886,28 @@ const InventoryCount: React.FC = () => {
     );
   };
 
+  const memoOriginalValue = memoModal?.stocktake.description ?? '';
+  const memoHasChanges = memoModal ? memoValue.trim() !== memoOriginalValue.trim() : false;
+  const isMemoSaving = memoSavingId !== null;
+
+  const memoItemName = useMemo(() => {
+    if (!memoModal) return '';
+    if (memoModal.stocktake.itemName) return memoModal.stocktake.itemName;
+    const itemRef = itemById.get(memoModal.stocktake.itemId);
+    return itemRef ? getItemDisplayName(itemRef, language) : memoModal.stocktake.itemId;
+  }, [memoModal, itemById, language]);
+
+  const memoLocationLabel = useMemo(() => {
+    if (!memoModal) return '';
+    const location = locationById.get(memoModal.stocktake.locationId);
+    if (!location) return '';
+    const sub = memoModal.stocktake.subLocationId
+      ? location.sublocations?.find((subLocation) => subLocation.id === memoModal.stocktake.subLocationId)
+      : undefined;
+    return formatLocationLabel(location, sub);
+  }, [memoModal, locationById]);
+
+  const memoLastCountDisplay = memoModal ? formatTimestamp(memoModal.stocktake.lastCountedAt) : '';
   const renderCountContent = () => {
     if (!selectedId) {
       return (
@@ -787,7 +975,7 @@ const InventoryCount: React.FC = () => {
                     disabled={!canEdit}
                   />
                 </TableCell>
-                <TableCell>{new Date(stocktake.lastCountedAt).toLocaleDateString()}</TableCell>
+                <TableCell>{formatTimestamp(stocktake.lastCountedAt)}</TableCell>
               </TableRow>
             ))}
           </Table>
@@ -843,7 +1031,7 @@ const InventoryCount: React.FC = () => {
                   disabled={!canEdit}
                 />
               </TableCell>
-              <TableCell>{new Date(stocktake.lastCountedAt).toLocaleDateString()}</TableCell>
+              <TableCell>{formatTimestamp(stocktake.lastCountedAt)}</TableCell>
             </TableRow>
           ))}
         </Table>
@@ -860,6 +1048,7 @@ const InventoryCount: React.FC = () => {
   }
 
   return (
+    <>
     <Card>
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-4 pb-4 border-b dark:border-gray-700">
         <div className="flex-1">
@@ -947,6 +1136,7 @@ const InventoryCount: React.FC = () => {
                   key={location.id}
                   location={location}
                   selectedId={selectedId}
+                  selectedIsSub={selectedIsSub}
                   onSelect={(id, isSub) => {
                     setSelectedId(id);
                     setSelectedIsSub(isSub);
@@ -959,39 +1149,47 @@ const InventoryCount: React.FC = () => {
               ))
             )
           ) : (
-            visibleItems.length === 0 ? (
-              <p className="text-sm text-gray-500">{t('common.noResults')}</p>
-            ) : (
-              visibleItems.map((item) => (
-                <div
-                  key={item.id}
-                  className={classNames(
-                    'flex items-center justify-between p-2 rounded-md cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700',
-                    selectedId === item.id && 'bg-primary-100 dark:bg-primary-900/50'
-                  )}
-                  onClick={() => {
-                    setSelectedId(item.id);
-                    setSelectedIsSub(false);
-                    closeSelectionPanelOnMobile();
-                  }}
-                >
-                  <span>{getItemDisplayName(item, language)}</span>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    type="button"
-                    title={hideHint}
-                    aria-label={hideHint}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      hideItemEntry(item.id);
+            <>
+              <Input
+                value={itemSearch}
+                onChange={(event) => setItemSearch(event.target.value)}
+                placeholder={t('inventory.searchItems.placeholder')}
+                className="mb-3"
+              />
+              {visibleItems.length === 0 ? (
+                <p className="text-sm text-gray-500">{t('common.noResults')}</p>
+              ) : (
+                visibleItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className={classNames(
+                      'flex items-center justify-between p-2 rounded-md cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700',
+                      selectedId === item.id && 'bg-primary-100 dark:bg-primary-900/50'
+                    )}
+                    onClick={() => {
+                      setSelectedId(item.id);
+                      setSelectedIsSub(false);
+                      closeSelectionPanelOnMobile();
                     }}
                   >
-                    {hideLabel}
-                  </Button>
-                </div>
-              ))
-            )
+                    <span>{getItemDisplayName(item, language)}</span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      type="button"
+                      title={hideHint}
+                      aria-label={hideHint}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        hideItemEntry(item.id);
+                      }}
+                    >
+                      {hideLabel}
+                    </Button>
+                  </div>
+                ))
+              )}
+            </>
           )}
           {viewMode === 'location' && hiddenLocationsList.length > 0 && (
             <div className="mt-4 border-t pt-3 space-y-2">
@@ -1077,10 +1275,78 @@ const InventoryCount: React.FC = () => {
         </div>
       </div>
     </Card>
+    {memoModal && (
+      <Modal
+        isOpen
+        onClose={handleCloseMemoModal}
+        title={t('inventory.assignmentNote.modalTitle')}
+        footer={(
+          <>
+            <Button variant="secondary" onClick={handleCloseMemoModal} disabled={isMemoSaving}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={handleSaveMemoModal} disabled={isMemoSaving || !memoHasChanges}>
+              {isMemoSaving ? t('inventory.assignmentNote.saving') : t('common.save')}
+            </Button>
+          </>
+        )}
+      >
+        <div className="space-y-4">
+          <div className="space-y-1 text-sm text-gray-600 dark:text-gray-300">
+            <p>
+              <span className="font-semibold">{t('inventory.assignmentNote.context.item')}:</span>{' '}
+              {memoItemName || '-'}
+            </p>
+            <p>
+              <span className="font-semibold">{t('inventory.assignmentNote.context.location')}:</span>{' '}
+              {memoLocationLabel || '-'}
+            </p>
+            <p>
+              <span className="font-semibold">{t('inventory.assignmentNote.context.lastCount')}:</span>{' '}
+              {memoLastCountDisplay}
+            </p>
+            <p>
+              <span className="font-semibold">{t('inventory.lastCount')}:</span>{' '}
+              {memoModal.stocktake.lastCount ?? 0}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              {t('inventory.assignmentNote.label')}
+            </label>
+            <textarea
+              value={memoValue}
+              onChange={(event) => setMemoValue(event.target.value)}
+              rows={4}
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+              disabled={isMemoSaving}
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {t('inventory.assignmentNote.helper')}
+            </p>
+            {memoError && (
+              <p className="text-xs text-red-600 dark:text-red-400">{memoError}</p>
+            )}
+          </div>
+        </div>
+      </Modal>
+    )}
+    </>
   );
 };
 
 export default InventoryCount;
+
+
+
+
+
+
+
+
+
+
+
 
 
 

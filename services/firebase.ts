@@ -1,5 +1,6 @@
 import { getApps, initializeApp } from 'firebase/app';
 import { enableIndexedDbPersistence, getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 
 const requiredEnv = {
@@ -32,6 +33,7 @@ const firebaseConfig = {
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
 export const db = getFirestore(app);
+export const storage = getStorage(app);
 
 // Enable robust offline persistence
 enableIndexedDbPersistence(db).catch((err) => {

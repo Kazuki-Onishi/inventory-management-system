@@ -9,10 +9,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "browser-image-compression": "^2.0.2",
+    "firebase": "^12.3.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "react-router-dom": "^7.9.3",
-    "firebase": "^12.3.0"
+    "react-router-dom": "^7.9.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

@@ -16,11 +16,12 @@ interface InviteManagerProps {
   stores: Store[];
   invites: Invite[];
   loading: boolean;
-  onCreateInvite: (payload: NewInvite) => Promise<void>;
+  onCreateInvites: (payload: NewInvite, count: number) => Promise<Invite[]>;
   onRevokeInvite: (invite: Invite) => Promise<void>;
+  maxBulkCount: number;
 }
 
-const InviteManager: React.FC<InviteManagerProps> = ({ stores, invites, loading, onCreateInvite, onRevokeInvite }) => {
+const InviteManager: React.FC<InviteManagerProps> = ({ stores, invites, loading, onCreateInvites, onRevokeInvite, maxBulkCount }) => {
   const { t } = useTranslation();
   const { showToast } = useContext(AppContext);
 
@@ -30,7 +31,8 @@ const InviteManager: React.FC<InviteManagerProps> = ({ stores, invites, loading,
     canViewCost: true,
     email: '',
   });
-  const [errors, setErrors] = useState<{ storeId?: string; email?: string }>({});
+  const [quantity, setQuantity] = useState<number>(1);
+  const [errors, setErrors] = useState<{ storeId?: string; email?: string; quantity?: string }>({});
   const [submitting, setSubmitting] = useState(false);
   const [inviteToRevoke, setInviteToRevoke] = useState<Invite | null>(null);
 
@@ -43,12 +45,21 @@ const InviteManager: React.FC<InviteManagerProps> = ({ stores, invites, loading,
   const pendingInvites = useMemo(() => invites.filter(invite => invite.status === 'pending'), [invites]);
 
   const validate = () => {
-    const nextErrors: { storeId?: string; email?: string } = {};
+    const nextErrors: { storeId?: string; email?: string; quantity?: string } = {};
     if (!form.storeId) {
       nextErrors.storeId = t('common.required');
     }
-    if (form.email && !form.email.includes('@')) {
+    const trimmedEmail = form.email.trim();
+    if (trimmedEmail && !trimmedEmail.includes('@')) {
       nextErrors.email = t('settings.invites.email.invalid');
+    }
+    const parsedQuantity = Number(quantity);
+    if (!Number.isInteger(parsedQuantity) || parsedQuantity < 1) {
+      nextErrors.quantity = t('settings.invites.create.quantity.invalid');
+    } else if (parsedQuantity > maxBulkCount) {
+      nextErrors.quantity = t('settings.invites.create.quantity.limit', { limit: maxBulkCount });
+    } else if (trimmedEmail && parsedQuantity > 1) {
+      nextErrors.quantity = t('settings.invites.create.quantity.emailRestriction');
     }
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -59,13 +70,16 @@ const InviteManager: React.FC<InviteManagerProps> = ({ stores, invites, loading,
     if (!validate()) return;
     setSubmitting(true);
     try {
-      await onCreateInvite({
+      const trimmedEmail = form.email.trim();
+      const parsedQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
+      await onCreateInvites({
         storeId: form.storeId,
         role: form.role,
         canViewCost: form.canViewCost,
-        email: form.email.trim() || undefined,
-      });
+        email: trimmedEmail ? trimmedEmail : undefined,
+      }, parsedQuantity);
       setForm(prev => ({ ...prev, email: '' }));
+      setQuantity(1);
     } catch (error) {
       // Error already surfaced via toast in the parent handler.
     } finally {
@@ -157,6 +171,17 @@ const InviteManager: React.FC<InviteManagerProps> = ({ stores, invites, loading,
             disabled={submitting}
             error={errors.email}
           />
+          <Input
+            type="number"
+            min={1}
+            max={maxBulkCount}
+            label={t('settings.invites.create.quantityLabel')}
+            value={quantity}
+            onChange={e => setQuantity(Math.max(0, Number(e.target.value)))}
+            disabled={submitting}
+            error={errors.quantity}
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t('settings.invites.create.quantityHelp', { limit: maxBulkCount })}</p>
           <label className="flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300">
             <input
               type="checkbox"
