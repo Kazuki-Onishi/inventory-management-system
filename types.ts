@@ -80,6 +80,7 @@ export interface Item {
   supplier?: string;
   imageUrl?: string | null;
   categoryId?: string | null;
+  vendorId?: string | null;
 }
 export type NewItem = Omit<Item, 'id' | 'normalizedName'> & { humanId?: string };
 
@@ -117,3 +118,14 @@ export interface Stocktake {
     description?: string;
 }
 export type NewStocktake = Omit<Stocktake, 'id'>;
+
+export interface Vendor {
+  id: string;
+  name: string;
+  contactName?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+}
+
+export type NewVendor = Omit<Vendor, 'id'>;

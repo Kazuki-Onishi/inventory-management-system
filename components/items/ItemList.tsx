@@ -26,7 +26,7 @@ type ModalState =
 const ItemList: React.FC = () => {
   const { t, language } = useTranslation();
   const { hasPermission, isOffline } = useContext(AuthContext);
-  const { items: contextItems, categories, addItem, updateItem, deleteItem, showToast } = useContext(AppContext);
+  const { items: contextItems, categories, vendors, addItem, updateItem, deleteItem, showToast } = useContext(AppContext);
   const [items, setItems] = useState<Item[]>([]);
   const mapItemsWithHumanId = useCallback((list: Item[]): Item[] => list.map((item) => ensureItemHumanId(item)), []);
   const [loading, setLoading] = useState(true);
@@ -88,6 +88,12 @@ const ItemList: React.FC = () => {
     return tempItems.sort((a, b) => getItemDisplayName(a, language).localeCompare(getItemDisplayName(b, language), language === 'ja' ? 'ja-JP' : 'en-US'));
   }, [items, showDiscontinued, searchTerms, language, selectedCategoryId]);
 
+  const vendorMap = useMemo(() => new Map(vendors.map(vendor => [vendor.id, vendor.name])), [vendors]);
+  const sortedVendors = useMemo(
+    () => [...vendors].sort((a, b) => a.name.localeCompare(b.name)),
+    [vendors]
+  );
+
 
   const handleOpenModal = (state: ModalState) => {
     setModalState(state);
@@ -109,6 +115,7 @@ const ItemList: React.FC = () => {
         janCode: itemWithId.janCode || '',
         supplier: itemWithId.supplier || '',
         categoryId: itemWithId.categoryId || '',
+        vendorId: itemWithId.vendorId || '',
         imageUrl: itemWithId.imageUrl || '',
         humanId: itemWithId.humanId,
       });
@@ -127,6 +134,7 @@ const ItemList: React.FC = () => {
         janCode: '',
         supplier: '',
         categoryId: '',
+        vendorId: '',
         imageUrl: '',
       });
     }
@@ -179,6 +187,7 @@ const ItemList: React.FC = () => {
         supplier: formData.supplier?.trim() || '',
         categoryId: normalizedCategoryId,
         humanId,
+        vendorId: formData.vendorId && formData.vendorId.length > 0 ? formData.vendorId : null,
         imageUrl: currentImageUrl,
       };
 
@@ -255,9 +264,10 @@ const ItemList: React.FC = () => {
   const canEdit = hasPermission(Role.Editor);
 
   const renderItemTable = () => (
-    <Table headers={[t('products.fullName'), t('products.humanId'), t('products.category'), t('products.sku'), t('common.actions')]}>
+    <Table headers={[t('products.fullName'), t('products.humanId'), t('products.category'), t('products.vendor'), t('products.sku'), t('common.actions')]}>
         {filteredItems.map(item => {
             const categoryName = categories.find(c => c.id === item.categoryId)?.name || '-';
+            const vendorName = item.vendorId ? vendorMap.get(item.vendorId) : undefined;
             return (
                 <TableRow key={item.id} className={classNames(item.isDiscontinued && "text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800/50")}>
                     <TableCell>
@@ -282,6 +292,7 @@ const ItemList: React.FC = () => {
                         <span className="font-mono text-sm text-gray-700 dark:text-gray-300">{item.humanId || '-'}</span>
                     </TableCell>
                     <TableCell>{categoryName}</TableCell>
+                    <TableCell>{vendorName || t('products.vendor.none')}</TableCell>
                     <TableCell>
                         {item.sku && (
                             <span className="font-mono bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 text-xs">
@@ -401,6 +412,16 @@ const ItemList: React.FC = () => {
             >
                 <option value="">-- {t('products.selectCategory')} --</option>
                 {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+            </Select>
+            <Select
+                label={t('products.vendor')}
+                value={formData.vendorId || ''}
+                onChange={e => setFormData(p => ({ ...p, vendorId: e.target.value }))}
+            >
+                <option value="">{t('products.vendor.none')}</option>
+                {sortedVendors.map(vendor => (
+                    <option key={vendor.id} value={vendor.id}>{vendor.name}</option>
+                ))}
             </Select>
             <div>
                  <label htmlFor="details" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('products.details')}</label>

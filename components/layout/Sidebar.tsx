@@ -7,18 +7,27 @@ import { useTranslation } from '../../hooks/useTranslation';
 import { ICONS } from '../../constants';
 import { classNames } from '../../lib/utils';
 import Select from '../ui/Select';
+import { Role } from '../../types';
 
 const Sidebar: React.FC = () => {
-  const { user, logout } = useContext(AuthContext);
+  const { user, logout, hasPermission } = useContext(AuthContext);
   const { isSidebarOpen, toggleSidebar } = useContext(AppContext);
   const { t, language, setLanguage } = useTranslation();
 
-  const navItems = [
-    { to: '/', label: t('nav.dashboard'), icon: ICONS.dashboard, admin: false },
-    { to: '/items', label: t('nav.items'), icon: ICONS.items, admin: false },
-    { to: '/locations', label: t('nav.locations'), icon: ICONS.locations, admin: false },
-    { to: '/inventory', label: t('nav.inventory'), icon: ICONS.inventory, admin: false },
+  const navItems: Array<{
+    to: string;
+    label: string;
+    icon: React.ReactNode;
+    admin?: boolean;
+    minRole?: Role;
+  }> = [
+    { to: '/', label: t('nav.dashboard'), icon: ICONS.dashboard },
+    { to: '/items', label: t('nav.items'), icon: ICONS.items },
+    { to: '/locations', label: t('nav.locations'), icon: ICONS.locations },
+    { to: '/inventory', label: t('nav.inventory'), icon: ICONS.inventory },
     { to: '/categories', label: t('nav.categories'), icon: ICONS.categories, admin: true },
+    { to: '/vendors', label: t('nav.vendors'), icon: ICONS.vendors, minRole: Role.Viewer },
+    { to: '/vendors/assignments', label: t('nav.vendorAssignments'), icon: ICONS.vendorAssignments, minRole: Role.Viewer },
     { to: '/import/items', label: t('nav.importItems'), icon: ICONS.import, admin: true },
     { to: '/import/locations', label: t('nav.importLocations'), icon: ICONS.locations, admin: true },
     { to: '/settings', label: t('nav.settings'), icon: ICONS.settings, admin: true },
@@ -60,9 +69,14 @@ const Sidebar: React.FC = () => {
             </button>
           </div>
           <nav className="flex-1 px-4 py-4 space-y-2">
-            {navItems.map(item => (
-              (!item.admin || user?.isAdmin) && <NavItem key={item.to} {...item} />
-            ))}
+            {navItems.map(item => {
+              const meetsAdmin = !item.admin || user?.isAdmin;
+              const meetsRole = !item.minRole || user?.isAdmin || hasPermission(item.minRole);
+              if (!meetsAdmin || !meetsRole) {
+                return null;
+              }
+              return <NavItem key={item.to} {...item} />;
+            })}
           </nav>
           <div className="px-4 py-4 border-t dark:border-gray-700 space-y-4">
               <div className="flex items-center text-gray-600 dark:text-gray-300">

@@ -1,5 +1,5 @@
 
-import { Store, Item, Location, Stocktake, Category } from '../types';
+import { Store, Item, Location, Stocktake, Category, Vendor } from '../types';
 
 const stores: Store[] = [
     { id: 'demo-gion', name: 'Demo Store: Kyoto Gion' },
@@ -14,14 +14,41 @@ const categories: Category[] = [
     { id: 'cat-supplies', name: 'Supplies' },
 ];
 
+const vendors: Vendor[] = [
+    {
+        id: 'vendor-kyoto-roasters',
+        name: 'Kyoto Roasters Inc.',
+        contactName: 'Haruki Tanaka',
+        email: 'contact@kyotoroasters.jp',
+        phone: '+81-75-000-0000',
+        notes: 'Primary coffee supplier for Kyoto region stores.',
+    },
+    {
+        id: 'vendor-brazil-farm',
+        name: 'Brazil Farm Direct',
+        contactName: 'Mariana Souza',
+        email: 'sales@brazildirect.com',
+        phone: '+55-11-1234-5678',
+        notes: 'Direct import of specialty beans.',
+    },
+    {
+        id: 'vendor-local-dairy',
+        name: 'Shizuoka Dairy Cooperative',
+        contactName: 'Kenji Sato',
+        email: 'support@shizuoka-dairy.jp',
+        phone: '+81-54-222-1100',
+        notes: 'Fresh dairy supplier with daily deliveries.',
+    },
+];
+
 const items: Item[] = [
     // Standalone items
     { id: 'item-soysauce', name: 'しょうゆ(ボトル)', normalizedName: 'soy_sauce_bottle', shortName: 'しょうゆ', description: '1L', costA: 250, costB: 300, sku: 'SEAS-010', isDiscontinued: false, nameEn: 'Soy Sauce', janCode: '4901515123456', supplier: 'Kikkoman', categoryId: 'cat-food' },
     { id: 'item-water', name: 'ミネラルウォーター', normalizedName: 'mineral_water', shortName: '水', description: '500mlペットボトル', costA: 80, costB: 100, sku: 'BEV-001', isDiscontinued: false, nameEn: 'Mineral Water', categoryId: 'cat-beverages' },
 
     // Coffee Items
-    { id: 'item-coffee-blend', name: 'コーヒー（オリジナルブレンド）', normalizedName: 'coffee_original_blend', shortName: 'オリブレ', description: '200gパック', costA: 450, costB: 500, sku: 'ITEM-001', isDiscontinued: false, nameEn: 'Coffee (Original Blend)', janCode: '4901234567890', supplier: 'Kyoto Roasters Inc.', categoryId: 'cat-coffee' },
-    { id: 'item-beans-brazil', name: 'コーヒー豆（ブラジル）', normalizedName: 'coffee_beans_brazil', shortName: 'ブラジル豆', description: '1kg袋', costA: 1800, costB: 2000, sku: 'ITEM-002', isDiscontinued: false, nameEn: 'Coffee Beans (Brazil)', janCode: '4901234567891', supplier: 'Brazil Farm Direct', categoryId: 'cat-coffee' },
+    { id: 'item-coffee-blend', name: 'コーヒー（オリジナルブレンド）', normalizedName: 'coffee_original_blend', shortName: 'オリブレ', description: '200gパック', costA: 450, costB: 500, sku: 'ITEM-001', isDiscontinued: false, nameEn: 'Coffee (Original Blend)', janCode: '4901234567890', supplier: 'Kyoto Roasters Inc.', categoryId: 'cat-coffee', vendorId: 'vendor-kyoto-roasters' },
+    { id: 'item-beans-brazil', name: 'コーヒー豆（ブラジル）', normalizedName: 'coffee_beans_brazil', shortName: 'ブラジル豆', description: '1kg袋', costA: 1800, costB: 2000, sku: 'ITEM-002', isDiscontinued: false, nameEn: 'Coffee Beans (Brazil)', janCode: '4901234567891', supplier: 'Brazil Farm Direct', categoryId: 'cat-coffee', vendorId: 'vendor-brazil-farm' },
     { id: 'item-beans-ethiopia', name: 'コーヒー豆（エチオピア）', normalizedName: 'coffee_beans_ethiopia', shortName: 'エチオピア豆', description: '1kg袋', costA: 2200, costB: 2400, sku: 'ITEM-003', isDiscontinued: false, nameEn: 'Coffee Beans (Ethiopia)', categoryId: 'cat-coffee' },
     { id: 'item-beans-colombia', name: 'コーヒー豆（コロンビア）', normalizedName: 'coffee_beans_colombia', shortName: 'コロンビア豆', description: '1kg袋', costA: 2000, costB: 2200, sku: 'ITEM-004', isDiscontinued: true, nameEn: 'Coffee Beans (Colombia)', categoryId: 'cat-coffee' },
 
@@ -38,7 +65,7 @@ const items: Item[] = [
     { id: 'item-teabag', name: '紅茶（ティーバッグ）', normalizedName: 'black_tea_teabag', shortName: 'ティーバッグ', description: '50個入り', costA: 300, costB: 350, sku: 'BEV-005', isDiscontinued: false, nameEn: 'Tea Bags', categoryId: 'cat-beverages' },
 
     // Dairy Items
-    { id: 'item-milk', name: '牛乳', normalizedName: 'milk', shortName: '牛乳', description: '1Lパック', costA: 180, costB: 220, sku: 'DAIRY-001', isDiscontinued: false, nameEn: 'Milk', categoryId: 'cat-beverages' },
+    { id: 'item-milk', name: '牛乳', normalizedName: 'milk', shortName: '牛乳', description: '1Lパック', costA: 180, costB: 220, sku: 'DAIRY-001', isDiscontinued: false, nameEn: 'Milk', supplier: 'Shizuoka Dairy Cooperative', categoryId: 'cat-beverages', vendorId: 'vendor-local-dairy' },
 
     // Sweeteners Items
     { id: 'item-sugar', name: 'シュガーポーション', normalizedName: 'sugar_portion', shortName: 'シュガー', description: '100個入り袋', costA: 400, costB: 450, sku: 'MISC-001', isDiscontinued: false, nameEn: 'Sugar Portion', categoryId: 'cat-supplies' },
@@ -155,6 +182,7 @@ const stocktakes: Stocktake[] = [
 export const OFFLINE_DATA = {
     stores,
     categories,
+    vendors,
     items,
     locations,
     stocktakes,

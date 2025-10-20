@@ -62,7 +62,7 @@ import React, { createContext, useState, useEffect, ReactNode } from 'react';
 
 
 
-import { Store, Item, Location, Stocktake, NewStore, NewItem, NewLocation, NewSubLocation, SubLocation, Category, NewCategory } from '../types';
+import { Store, Item, Location, Stocktake, NewStore, NewItem, NewLocation, NewSubLocation, SubLocation, Category, NewCategory, Vendor, NewVendor } from '../types';
 import { ensureLocationHumanId, generateNextLocationHumanId, generateNextSubLocationHumanId } from '../lib/locations';
 
 
@@ -608,6 +608,8 @@ interface AppContextType {
 
 
   items: Item[];
+  vendors: Vendor[];
+  setVendors: React.Dispatch<React.SetStateAction<Vendor[]>>;
 
 
 
@@ -735,7 +737,7 @@ interface AppContextType {
 
 
 
-  loadOfflineData: (data: { items: Item[], locations: Location[], stocktakes: Stocktake[], categories: Category[] }) => void;
+  loadOfflineData: (data: { items: Item[], vendors: Vendor[], locations: Location[], stocktakes: Stocktake[], categories: Category[] }) => void;
 
 
 
@@ -1216,6 +1218,9 @@ interface AppContextType {
 
 
 
+  addVendor: (newVendor: NewVendor) => Promise<Vendor>;
+  updateVendor: (vendor: Vendor) => Promise<void>;
+  deleteVendor: (vendorId: string) => Promise<void>;
   clearData: () => void;
 
 
@@ -1697,6 +1702,8 @@ export const AppContext = createContext<AppContextType>({
 
 
   items: [],
+  vendors: [],
+  setVendors: () => {},
 
 
 
@@ -2305,6 +2312,9 @@ export const AppContext = createContext<AppContextType>({
 
 
 
+  addVendor: async () => ({} as Vendor),
+  updateVendor: async () => {},
+  deleteVendor: async () => {},
   clearData: () => {},
 
 
@@ -2722,6 +2732,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
   const [items, setItems] = useState<Item[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
 
 
 
@@ -3809,11 +3820,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
 
-  const loadOfflineData = (data: { items: Item[], locations: Location[], stocktakes: Stocktake[], categories: Category[] }) => {
+  const loadOfflineData = (data: { items: Item[], vendors: Vendor[], locations: Location[], stocktakes: Stocktake[], categories: Category[] }) => {
 
-    const normalizedItems = data.items.map(item => ({ ...item, categoryId: item.categoryId ?? null }));
+    const normalizedItems = data.items.map(item => ({
+      ...item,
+      categoryId: item.categoryId ?? null,
+      vendorId: item.vendorId ?? null,
+    }));
 
     setItems(normalizedItems);
+    setVendors(data.vendors);
 
     setLocations(data.locations.map(ensureLocationHumanId));
 
@@ -4791,6 +4807,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
           categoryId: newItem.categoryId ?? null,
+          vendorId: newItem.vendorId ?? null,
 
 
 
@@ -7149,6 +7166,18 @@ const updateLocation = async (locationId: string, data: Partial<NewLocation>): P
 
 
 
+  const addVendor = async (newVendor: NewVendor): Promise<Vendor> => {
+    const vendorWithId: Vendor = { ...newVendor, id: `offline-vendor-${Date.now()}` };
+    setVendors(prev => [...prev, vendorWithId]);
+    return vendorWithId;
+  };
+  const updateVendor = async (vendor: Vendor): Promise<void> => {
+    setVendors(prev => prev.map(existing => existing.id === vendor.id ? vendor : existing));
+  };
+  const deleteVendor = async (vendorId: string): Promise<void> => {
+    setVendors(prev => prev.filter(vendor => vendor.id !== vendorId));
+    setItems(prev => prev.map(item => item.vendorId === vendorId ? { ...item, vendorId: null } : item));
+  };
   const clearData = () => {
 
 
@@ -7182,6 +7211,7 @@ const updateLocation = async (locationId: string, data: Partial<NewLocation>): P
 
 
     setItems([]);
+    setVendors([]);
 
 
 
@@ -7917,7 +7947,7 @@ const updateLocation = async (locationId: string, data: Partial<NewLocation>): P
 
 
 
-        items, locations, stocktakes, categories,
+        items, vendors, setVendors, locations, stocktakes, categories,
 
 
 
@@ -8430,6 +8460,9 @@ const updateLocation = async (locationId: string, data: Partial<NewLocation>): P
 
 
 
+        addVendor,
+        updateVendor,
+        deleteVendor,
         clearData,
 
 

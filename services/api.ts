@@ -1,5 +1,5 @@
 
-import { User, Store, Permission, Role, Item, Location, Stocktake, NewStore, NewItem, NewLocation, NewSubLocation, SubLocation, Category, NewCategory, Invite, InviteStatus, NewInvite } from '../types';
+import { User, Store, Permission, Role, Item, Location, Stocktake, NewStore, NewItem, NewLocation, NewSubLocation, SubLocation, Category, NewCategory, Vendor, NewVendor, Invite, InviteStatus, NewInvite } from '../types';
 import { ensureLocationHumanId, generateNextLocationHumanId, generateNextSubLocationHumanId } from '../lib/locations';
 import { deriveHumanIdFromId, ensureItemHumanId } from '../lib/items';
 import { db, auth, googleProvider } from './firebase';
@@ -341,11 +341,12 @@ export const api = {
   fetchItems: async (): Promise<Item[]> => {
     const snapshot = await getDocs(collection(db, 'items'));
     return snapshot.docs.map((docSnap) => {
-      const data = docSnap.data() as Omit<Item, 'id'> & { categoryId?: string | null; imageUrl?: string | null; humanId?: string | null };
+      const data = docSnap.data() as Omit<Item, 'id'> & { categoryId?: string | null; imageUrl?: string | null; humanId?: string | null; vendorId?: string | null };
       const item: Item = {
         ...data,
         id: docSnap.id,
         categoryId: data.categoryId ?? null,
+        vendorId: data.vendorId ?? null,
         imageUrl: data.imageUrl ?? null,
       } as Item;
       return ensureItemHumanId(item);
@@ -353,6 +354,8 @@ export const api = {
   },
 
   fetchCategories: (): Promise<Category[]> => getCollectionData<Category>('categories'),
+  
+  fetchVendors: (): Promise<Vendor[]> => getCollectionData<Vendor>('vendors'),
   
   fetchLocationsByStore: async (storeId: string): Promise<Location[]> => {
     const locationsQuery = query(collection(db, 'locations'), where('storeId', '==', storeId));
@@ -406,6 +409,7 @@ export const api = {
       humanId,
       normalizedName,
       categoryId: newItem.categoryId ?? null,
+      vendorId: newItem.vendorId ?? null,
       imageUrl: newItem.imageUrl ?? null,
     };
     await setDoc(docRef, itemToAdd);
@@ -415,6 +419,11 @@ export const api = {
   addCategory: async (newCategory: NewCategory): Promise<Category> => {
     const docRef = await addDoc(collection(db, 'categories'), newCategory);
     return { ...newCategory, id: docRef.id };
+  },
+
+  addVendor: async (newVendor: NewVendor): Promise<Vendor> => {
+    const docRef = await addDoc(collection(db, 'vendors'), newVendor);
+    return { ...newVendor, id: docRef.id };
   },
 
   addLocation: async (newLocation: NewLocation): Promise<Location> => {
@@ -486,6 +495,7 @@ export const api = {
       ...rest,
       normalizedName,
       categoryId: rest.categoryId ?? null,
+      vendorId: rest.vendorId ?? null,
       imageUrl: rest.imageUrl ?? null,
     };
     await updateDoc(itemRef, itemToUpdate as { [x: string]: any });
@@ -494,6 +504,12 @@ export const api = {
   updateCategory: async (category: Category): Promise<void> => {
     const categoryRef = doc(db, 'categories', category.id);
     await updateDoc(categoryRef, { name: category.name });
+  },
+
+  updateVendor: async (vendor: Vendor): Promise<void> => {
+    const vendorRef = doc(db, 'vendors', vendor.id);
+    const { id, ...rest } = vendor;
+    await updateDoc(vendorRef, rest);
   },
 
   updateLocation: async (locationId: string, data: Partial<NewLocation>): Promise<void> => {
@@ -570,6 +586,22 @@ export const api = {
       batch.update(itemRef, { categoryId: deleteField() });
     });
     
+    await batch.commit();
+  },
+
+  deleteVendor: async (vendorId: string): Promise<void> => {
+    const batch = writeBatch(db);
+
+    const vendorRef = doc(db, 'vendors', vendorId);
+    batch.delete(vendorRef);
+
+    const itemsQuery = query(collection(db, 'items'), where('vendorId', '==', vendorId));
+    const itemsSnapshot = await getDocs(itemsQuery);
+    itemsSnapshot.forEach(itemDoc => {
+      const itemRef = doc(db, 'items', itemDoc.id);
+      batch.update(itemRef, { vendorId: deleteField() });
+    });
+
     await batch.commit();
   },
 
