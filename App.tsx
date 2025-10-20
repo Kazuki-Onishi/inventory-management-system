@@ -42,6 +42,19 @@ const AdminRoute: React.FC<{ children: React.ReactElement }> = ({ children }) =>
     return hasAdminAccess ? children : <Navigate to="/" />;
 };
 
+const EditorRoute: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+  const auth = useContext(AuthContext);
+  if (auth.loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <Spinner />
+      </div>
+    );
+  }
+  const hasEditorAccess = auth.user?.isAdmin || auth.hasPermission(Role.Editor);
+  return hasEditorAccess ? children : <Navigate to="/" />;
+};
+
 
 const App: React.FC = () => {
   return (
@@ -54,8 +67,12 @@ const App: React.FC = () => {
         <Route path="/categories" element={
           <AdminRoute><Layout><CategoryList /></Layout></AdminRoute>
         } />
-        <Route path="/vendors" element={<PrivateRoute><Layout><VendorManagement /></Layout></PrivateRoute>} />
-        <Route path="/vendors/assignments" element={<PrivateRoute><Layout><VendorAssignments /></Layout></PrivateRoute>} />
+        <Route path="/vendors" element={
+          <EditorRoute><Layout><VendorManagement /></Layout></EditorRoute>
+        } />
+        <Route path="/vendors/assignments" element={
+          <EditorRoute><Layout><VendorAssignments /></Layout></EditorRoute>
+        } />
         <Route path="/inventory" element={<PrivateRoute><Layout><InventoryCount /></Layout></PrivateRoute>} />
         <Route path="/import/items" element={
           <AdminRoute><Layout><BulkImport /></Layout></AdminRoute>
