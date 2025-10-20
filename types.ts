@@ -122,11 +122,11 @@ export type NewStocktake = Omit<Stocktake, 'id'>;
 export interface Vendor {
   id: string;
   name: string;
-  contactName?: string;
-  email?: string;
-  phone?: string;
-  internalContactName?: string;
-  notes?: string;
+  contactName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  internalContactName?: string | null;
+  notes?: string | null;
 }
 
 export type NewVendor = Omit<Vendor, 'id'>;

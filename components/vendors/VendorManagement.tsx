@@ -38,11 +38,11 @@ const VendorManagement: React.FC = () => {
       matchesSearch(
         [
           vendor.name,
-          vendor.contactName,
-          vendor.internalContactName,
-          vendor.email,
-          vendor.phone,
-          vendor.notes,
+          vendor.contactName ?? '',
+          vendor.internalContactName ?? '',
+          vendor.email ?? '',
+          vendor.phone ?? '',
+          vendor.notes ?? '',
         ],
         searchTerms,
       )
@@ -124,13 +124,18 @@ const VendorManagement: React.FC = () => {
       return;
     }
 
+    const normalizeOptional = (value?: string | null) => {
+      const trimmed = value?.trim();
+      return trimmed && trimmed.length > 0 ? trimmed : null;
+    };
+
     const basePayload: NewVendor = {
       name: formData.name!.trim(),
-      contactName: formData.contactName?.trim() || undefined,
-      internalContactName: formData.internalContactName?.trim() || undefined,
-      email: formData.email?.trim() || undefined,
-      phone: formData.phone?.trim() || undefined,
-      notes: formData.notes?.trim() || undefined,
+      contactName: normalizeOptional(formData.contactName),
+      internalContactName: normalizeOptional(formData.internalContactName),
+      email: normalizeOptional(formData.email),
+      phone: normalizeOptional(formData.phone),
+      notes: normalizeOptional(formData.notes),
     };
 
     try {
@@ -139,6 +144,7 @@ const VendorManagement: React.FC = () => {
           await addVendor(basePayload);
         } else {
           await api.addVendor(basePayload);
+          await fetchAndSetVendors();
         }
       } else {
         const updatedVendor: Vendor = { ...modalState.vendor, ...basePayload };
@@ -146,10 +152,10 @@ const VendorManagement: React.FC = () => {
           await updateVendor(updatedVendor);
         } else {
           await api.updateVendor(updatedVendor);
+          await fetchAndSetVendors();
         }
       }
 
-      await fetchAndSetVendors();
       setModalState(null);
       showToast(t('toast.saveSuccess'));
     } catch (error) {
