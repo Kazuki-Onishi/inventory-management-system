@@ -129,7 +129,12 @@ const VendorAssignments: React.FC = () => {
     }
     return vendorEntries.filter(entry =>
       matchesSearch(
-        [entry.vendor.name, entry.vendor.contactName ?? '', entry.vendor.email ?? ''],
+        [
+          entry.vendor.name,
+          entry.vendor.contactName ?? '',
+          entry.vendor.internalContactName ?? '',
+          entry.vendor.email ?? '',
+        ],
         vendorSearchTerms,
       )
     );
@@ -384,6 +389,16 @@ const VendorAssignments: React.FC = () => {
             </div>
           ) : (
             <>
+              {(activeVendor.contactName || activeVendor.internalContactName) && (
+                <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 px-4 py-3 text-sm text-gray-600 dark:text-gray-300 space-y-1">
+                  {activeVendor.contactName && (
+                    <p>{t('vendors.assignments.contactSummary.vendor', { name: activeVendor.contactName })}</p>
+                  )}
+                  {activeVendor.internalContactName && (
+                    <p>{t('vendors.assignments.contactSummary.internal', { name: activeVendor.internalContactName })}</p>
+                  )}
+                </div>
+              )}
               <section className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>

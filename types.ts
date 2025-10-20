@@ -125,6 +125,7 @@ export interface Vendor {
   contactName?: string;
   email?: string;
   phone?: string;
+  internalContactName?: string;
   notes?: string;
 }
 

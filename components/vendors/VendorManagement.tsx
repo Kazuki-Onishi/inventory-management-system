@@ -39,6 +39,7 @@ const VendorManagement: React.FC = () => {
         [
           vendor.name,
           vendor.contactName,
+          vendor.internalContactName,
           vendor.email,
           vendor.phone,
           vendor.notes,
@@ -88,6 +89,7 @@ const VendorManagement: React.FC = () => {
       setFormData({
         name: vendor.name,
         contactName: vendor.contactName || '',
+        internalContactName: vendor.internalContactName || '',
         email: vendor.email || '',
         phone: vendor.phone || '',
         notes: vendor.notes || '',
@@ -96,6 +98,7 @@ const VendorManagement: React.FC = () => {
       setFormData({
         name: '',
         contactName: '',
+        internalContactName: '',
         email: '',
         phone: '',
         notes: '',
@@ -124,6 +127,7 @@ const VendorManagement: React.FC = () => {
     const basePayload: NewVendor = {
       name: formData.name!.trim(),
       contactName: formData.contactName?.trim() || undefined,
+      internalContactName: formData.internalContactName?.trim() || undefined,
       email: formData.email?.trim() || undefined,
       phone: formData.phone?.trim() || undefined,
       notes: formData.notes?.trim() || undefined,
@@ -210,6 +214,7 @@ const VendorManagement: React.FC = () => {
             headers={[
               t('common.name'),
               t('vendors.table.contact'),
+              t('vendors.table.internalContact'),
               t('vendors.table.email'),
               t('vendors.table.phone'),
               t('common.actions'),
@@ -224,6 +229,7 @@ const VendorManagement: React.FC = () => {
                   )}
                 </TableCell>
                 <TableCell>{vendor.contactName || '-'}</TableCell>
+                <TableCell>{vendor.internalContactName || '-'}</TableCell>
                 <TableCell>{vendor.email || '-'}</TableCell>
                 <TableCell>{vendor.phone || '-'}</TableCell>
                 <TableCell className="text-right">
@@ -292,6 +298,12 @@ const VendorManagement: React.FC = () => {
             value={formData.contactName || ''}
             onChange={e => setFormData(prev => ({ ...prev, contactName: e.target.value }))}
             placeholder={t('vendors.form.contactPlaceholder')}
+          />
+          <Input
+            label={t('vendors.form.internalContactName')}
+            value={formData.internalContactName || ''}
+            onChange={e => setFormData(prev => ({ ...prev, internalContactName: e.target.value }))}
+            placeholder={t('vendors.form.internalContactPlaceholder')}
           />
           <Input
             label={t('vendors.form.email')}
