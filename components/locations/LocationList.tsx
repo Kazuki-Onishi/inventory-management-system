@@ -62,8 +62,8 @@ const LocationRow: React.FC<{
       <div className="border-b dark:border-gray-700 last:border-b-0">
         <div className="hover:bg-gray-50 dark:hover:bg-gray-700">
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 p-3">
-            <div 
-              className={classNames("flex items-center flex-grow", hasSublocations && "cursor-pointer")}
+            <div
+              className={classNames("flex items-center flex-grow gap-3", hasSublocations && "cursor-pointer")}
               onClick={() => hasSublocations && setIsOpen(!isOpen)}
               aria-expanded={isOpen}
             >
@@ -74,14 +74,26 @@ const LocationRow: React.FC<{
               ) : (
                 <span className="w-5 inline-block"></span>
               )}
-              <div className="ml-2">
-                <span className="font-medium text-gray-900 dark:text-white">
-                  <span className="font-mono bg-gray-200 dark:bg-gray-600 rounded px-1.5 py-0.5 text-sm mr-2">
-                    {location.humanId}
+              <div className="flex items-start gap-3">
+                {location.imageUrl && (
+                  <img
+                    src={location.imageUrl}
+                    alt={location.name}
+                    className="h-12 w-12 rounded-md object-cover border border-gray-200 dark:border-gray-700"
+                    loading="lazy"
+                  />
+                )}
+                <div>
+                  <span className="font-medium text-gray-900 dark:text-white">
+                    <span className="font-mono bg-gray-200 dark:bg-gray-600 rounded px-1.5 py-0.5 text-sm mr-2">
+                      {location.humanId}
+                    </span>
+                    {location.name}
                   </span>
-                  {location.name}
-                </span>
-                {location.description && <span className="block md:inline md:ml-4 text-sm text-gray-500 dark:text-gray-400">{location.description}</span>}
+                  {location.description && (
+                    <span className="block md:inline md:ml-4 text-sm text-gray-500 dark:text-gray-400">{location.description}</span>
+                  )}
+                </div>
               </div>
             </div>
             
@@ -110,14 +122,26 @@ const LocationRow: React.FC<{
             {location.sublocations?.map(sub => (
               <div key={sub.id} className="border-t dark:border-gray-700">
                 <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 p-3 pl-8">
-                  <div className="flex-grow">
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      <span className="font-mono bg-gray-200 dark:bg-gray-600 rounded px-1.5 py-0.5 text-sm mr-2">
-                        {location.humanId}-{sub.humanId}
+                  <div className="flex items-start gap-3 flex-grow">
+                    {sub.imageUrl && (
+                      <img
+                        src={sub.imageUrl}
+                        alt={sub.name}
+                        className="h-10 w-10 rounded-md object-cover border border-gray-200 dark:border-gray-700"
+                        loading="lazy"
+                      />
+                    )}
+                    <div>
+                      <span className="font-medium text-gray-900 dark:text-white">
+                        <span className="font-mono bg-gray-200 dark:bg-gray-600 rounded px-1.5 py-0.5 text-sm mr-2">
+                          {location.humanId}-{sub.humanId}
+                        </span>
+                        {sub.name}
                       </span>
-                      {sub.name}
-                    </span>
-                    {sub.description && <span className="block md:inline md:ml-4 text-sm text-gray-500 dark:text-gray-400">{sub.description}</span>}
+                      {sub.description && (
+                        <span className="block md:inline md:ml-4 text-sm text-gray-500 dark:text-gray-400">{sub.description}</span>
+                      )}
+                    </div>
                   </div>
                   
                   {canEdit && (

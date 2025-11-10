@@ -23,6 +23,7 @@ const Sidebar: React.FC = () => {
   }> = [
     { to: '/', label: t('nav.dashboard'), icon: ICONS.dashboard },
     { to: '/items', label: t('nav.items'), icon: ICONS.items },
+    { to: '/catalog', label: t('nav.catalog'), icon: ICONS.catalog, minRole: Role.Editor },
     { to: '/locations', label: t('nav.locations'), icon: ICONS.locations },
     { to: '/inventory', label: t('nav.inventory'), icon: ICONS.inventory },
     { to: '/categories', label: t('nav.categories'), icon: ICONS.categories, admin: true },

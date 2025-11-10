@@ -12,6 +12,7 @@ import InventoryCount from './components/inventory/InventoryCount';
 import BulkImport from './components/import/BulkImport';
 import LocationBulkImport from './components/import/LocationBulkImport';
 import UserPermissions from './components/settings/UserPermissions';
+import CatalogManagement from './components/catalog/CatalogManagement';
 import VendorManagement from './components/vendors/VendorManagement';
 import VendorAssignments from './components/vendors/VendorAssignments';
 import Spinner from './components/ui/Spinner';
@@ -63,6 +64,9 @@ const App: React.FC = () => {
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
         <Route path="/items" element={<PrivateRoute><Layout><ItemList /></Layout></PrivateRoute>} />
+        <Route path="/catalog" element={
+          <EditorRoute><Layout><CatalogManagement /></Layout></EditorRoute>
+        } />
         <Route path="/locations" element={<PrivateRoute><Layout><LocationList /></Layout></PrivateRoute>} />
         <Route path="/categories" element={
           <AdminRoute><Layout><CategoryList /></Layout></AdminRoute>

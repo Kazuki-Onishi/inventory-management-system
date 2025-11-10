@@ -1,5 +1,5 @@
 
-import { User, Store, Permission, Role, Item, Location, Stocktake, NewStore, NewItem, NewLocation, NewSubLocation, SubLocation, Category, NewCategory, Vendor, NewVendor, Invite, InviteStatus, NewInvite } from '../types';
+import { User, Store, Permission, Role, Item, CatalogItem, Location, Stocktake, NewStore, NewItem, NewCatalogItem, NewLocation, NewSubLocation, SubLocation, Category, NewCategory, Vendor, NewVendor, Invite, InviteStatus, NewInvite } from '../types';
 import { ensureLocationHumanId, generateNextLocationHumanId, generateNextSubLocationHumanId } from '../lib/locations';
 import { deriveHumanIdFromId, ensureItemHumanId } from '../lib/items';
 import { db, auth, googleProvider } from './firebase';
@@ -414,6 +414,61 @@ export const api = {
     };
     await setDoc(docRef, itemToAdd);
     return { ...itemToAdd, id: docRef.id };
+  },
+
+  fetchCatalogItems: async (): Promise<CatalogItem[]> => {
+    const rawItems = await getCollectionData<any>('catalogItems');
+    return rawItems.map((item) => ({
+      id: item.id,
+      nameJa: item.nameJa ?? '',
+      nameEn: item.nameEn ?? undefined,
+      nameZhHans: item.nameZhHans ?? undefined,
+      nameZhHant: item.nameZhHant ?? undefined,
+      nameKo: item.nameKo ?? undefined,
+      skuOrTag: item.skuOrTag ?? undefined,
+      descriptionJa: item.descriptionJa ?? undefined,
+      descriptionEn: item.descriptionEn ?? undefined,
+      mainImageUrl: item.mainImageUrl ?? '',
+      thumbnailUrl: item.thumbnailUrl ?? item.mainImageUrl ?? null,
+      normalizedName: item.normalizedName ?? '',
+      createdAt: item.createdAt ?? new Date().toISOString(),
+      updatedAt: item.updatedAt ?? item.createdAt ?? new Date().toISOString(),
+    }));
+  },
+
+  addCatalogItem: async (newCatalogItem: NewCatalogItem, options?: { id?: string }): Promise<CatalogItem> => {
+    const docRef = options?.id
+      ? doc(db, 'catalogItems', options.id)
+      : doc(collection(db, 'catalogItems'));
+    const now = new Date().toISOString();
+    const normalizedName = (newCatalogItem.nameJa || '')
+      .normalize('NFKC')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const payload = {
+      ...newCatalogItem,
+      normalizedName,
+      createdAt: now,
+      updatedAt: now,
+      thumbnailUrl: newCatalogItem.thumbnailUrl ?? newCatalogItem.mainImageUrl,
+    };
+
+    await setDoc(docRef, payload);
+    return { ...payload, id: docRef.id };
+  },
+
+  updateCatalogItem: async (catalogItemId: string, updates: Partial<Omit<CatalogItem, 'id' | 'createdAt'>>) => {
+    const payload = {
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+    await updateDoc(doc(db, 'catalogItems', catalogItemId), payload);
+  },
+
+  deleteCatalogItem: async (catalogItemId: string): Promise<void> => {
+    await deleteDoc(doc(db, 'catalogItems', catalogItemId));
   },
 
   addCategory: async (newCategory: NewCategory): Promise<Category> => {

@@ -44,6 +44,11 @@ export const buildItemImagePath = (itemId: string, fileName: string): string => 
   return `items/${itemId}/${Date.now()}.${extension}`;
 };
 
+export const buildCatalogImagePath = (catalogId: string, fileName: string): string => {
+  const extension = sanitizeExtension(fileName, 'jpg');
+  return `catalog/${catalogId}/images/${Date.now()}.${extension}`;
+};
+
 export const buildLocationImagePath = (locationId: string, fileName: string): string => {
   const extension = sanitizeExtension(fileName, 'jpg');
   return `locations/${locationId}/${Date.now()}.${extension}`;
@@ -51,7 +56,9 @@ export const buildLocationImagePath = (locationId: string, fileName: string): st
 
 export const buildSubLocationImagePath = (locationId: string, subLocationId: string, fileName: string): string => {
   const extension = sanitizeExtension(fileName, 'jpg');
-  return `locations/${locationId}/sublocations/${subLocationId}/${Date.now()}.${extension}`;
+  // Encode the sub-location in the filename so uploads stay a direct child of the location folder,
+  // matching storage rules that expect /locations/{locationId}/{file}.
+  return `locations/${locationId}/sublocation-${subLocationId}-${Date.now()}.${extension}`;
 };
 
 export const compressImageIfNeeded = async (file: File): Promise<File> => {
@@ -81,6 +88,13 @@ const prepareItemImageUpload = async (itemId: string, file: File): Promise<Prepa
   return { preparedFile, storagePath, storageRef };
 };
 
+const prepareCatalogImageUpload = async (catalogId: string, file: File): Promise<PreparedUpload> => {
+  const preparedFile = await compressImageIfNeeded(file);
+  const storagePath = buildCatalogImagePath(catalogId, preparedFile.name || file.name || 'image.jpg');
+  const storageRef = ref(storage, storagePath);
+  return { preparedFile, storagePath, storageRef };
+};
+
 const prepareLocationImageUpload = async (locationId: string, file: File): Promise<PreparedUpload> => {
   const preparedFile = await compressImageIfNeeded(file);
   const storagePath = buildLocationImagePath(locationId, preparedFile.name || file.name || 'image.jpg');
@@ -106,6 +120,13 @@ export const uploadItemImageToStorage = async (itemId: string, file: File): Prom
   return { downloadUrl, storagePath };
 };
 
+export const uploadCatalogImageToStorage = async (catalogId: string, file: File): Promise<StorageUploadResult> => {
+  const { preparedFile, storagePath, storageRef } = await prepareCatalogImageUpload(catalogId, file);
+  await uploadBytes(storageRef, preparedFile, { contentType: preparedFile.type || DEFAULT_IMAGE_MIME });
+  const downloadUrl = await getDownloadURL(storageRef);
+  return { downloadUrl, storagePath };
+};
+
 export const createItemImageUploadTask = async (
   itemId: string,
   file: File,
@@ -113,6 +134,58 @@ export const createItemImageUploadTask = async (
 ): Promise<{ task: UploadTask; result: Promise<StorageUploadResult> }> => {
   const { onProgress, signal } = options;
   const { preparedFile, storagePath, storageRef } = await prepareItemImageUpload(itemId, file);
+  const uploadTask = uploadBytesResumable(storageRef, preparedFile, {
+    contentType: preparedFile.type || DEFAULT_IMAGE_MIME,
+  });
+
+  const result = new Promise<StorageUploadResult>((resolve, reject) => {
+    let abortHandler: (() => void) | null = null;
+
+    if (signal) {
+      if (signal.aborted) {
+        uploadTask.cancel();
+      } else {
+        abortHandler = () => uploadTask.cancel();
+        signal.addEventListener('abort', abortHandler);
+      }
+    }
+
+    const cleanup = () => {
+      if (abortHandler && signal) {
+        signal.removeEventListener('abort', abortHandler);
+      }
+    };
+
+    uploadTask.on(
+      'state_changed',
+      (snapshot) => {
+        if (onProgress && snapshot.totalBytes > 0) {
+          const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+          onProgress(percent, snapshot);
+        }
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+      async () => {
+        cleanup();
+        const downloadUrl = await getDownloadURL(storageRef);
+        resolve({ downloadUrl, storagePath });
+      },
+    );
+  });
+
+  return { task: uploadTask, result };
+};
+
+export const createCatalogImageUploadTask = async (
+  catalogId: string,
+  file: File,
+  options: ImageUploadOptions = {},
+): Promise<{ task: UploadTask; result: Promise<StorageUploadResult> }> => {
+  const { onProgress, signal } = options;
+  const { preparedFile, storagePath, storageRef } = await prepareCatalogImageUpload(catalogId, file);
   const uploadTask = uploadBytesResumable(storageRef, preparedFile, {
     contentType: preparedFile.type || DEFAULT_IMAGE_MIME,
   });

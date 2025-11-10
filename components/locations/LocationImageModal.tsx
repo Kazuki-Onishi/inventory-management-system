@@ -26,6 +26,8 @@ interface LocationImageModalProps {
   updateSubLocation: (parentId: string, subLocation: SubLocation) => Promise<Location>;
 }
 
+const REAR_CAMERA_CAPTURE = 'environment';
+
 const LocationImageModal: React.FC<LocationImageModalProps> = ({
   isOpen,
   target,
@@ -254,7 +256,7 @@ const LocationImageModal: React.FC<LocationImageModalProps> = ({
           ref={cameraInputRef}
           type="file"
           accept="image/*"
-          capture="environment"
+          capture={REAR_CAMERA_CAPTURE}
           className="hidden"
           onChange={handleFileChange}
           disabled={isOffline}

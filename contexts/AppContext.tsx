@@ -62,7 +62,7 @@ import React, { createContext, useState, useEffect, ReactNode } from 'react';
 
 
 
-import { Store, Item, Location, Stocktake, NewStore, NewItem, NewLocation, NewSubLocation, SubLocation, Category, NewCategory, Vendor, NewVendor } from '../types';
+import { Store, Item, CatalogItem, Location, Stocktake, NewStore, NewItem, NewCatalogItem, NewLocation, NewSubLocation, SubLocation, Category, NewCategory, Vendor, NewVendor } from '../types';
 import { ensureLocationHumanId, generateNextLocationHumanId, generateNextSubLocationHumanId } from '../lib/locations';
 
 
@@ -608,6 +608,8 @@ interface AppContextType {
 
 
   items: Item[];
+  catalogItems: CatalogItem[];
+  setCatalogItems: React.Dispatch<React.SetStateAction<CatalogItem[]>>;
   vendors: Vendor[];
   setVendors: React.Dispatch<React.SetStateAction<Vendor[]>>;
 
@@ -737,7 +739,7 @@ interface AppContextType {
 
 
 
-  loadOfflineData: (data: { items: Item[], vendors: Vendor[], locations: Location[], stocktakes: Stocktake[], categories: Category[] }) => void;
+  loadOfflineData: (data: { items: Item[], catalogItems: CatalogItem[], vendors: Vendor[], locations: Location[], stocktakes: Stocktake[], categories: Category[] }) => void;
 
 
 
@@ -835,6 +837,9 @@ interface AppContextType {
 
 
   addItem: (newItem: NewItem) => Promise<Item>;
+  addCatalogItem: (item: NewCatalogItem) => Promise<CatalogItem>;
+  updateCatalogItem: (item: CatalogItem) => Promise<void>;
+  deleteCatalogItem: (id: string) => Promise<void>;
 
 
 
@@ -1702,6 +1707,8 @@ export const AppContext = createContext<AppContextType>({
 
 
   items: [],
+  catalogItems: [],
+  setCatalogItems: () => {},
   vendors: [],
   setVendors: () => {},
 
@@ -1929,6 +1936,9 @@ export const AppContext = createContext<AppContextType>({
 
 
   addItem: async () => ({} as Item),
+  addCatalogItem: async () => ({} as CatalogItem),
+  updateCatalogItem: async () => {},
+  deleteCatalogItem: async () => {},
 
 
 
@@ -2732,6 +2742,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
   const [items, setItems] = useState<Item[]>([]);
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
 
 
@@ -3820,7 +3831,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
 
-  const loadOfflineData = (data: { items: Item[], vendors: Vendor[], locations: Location[], stocktakes: Stocktake[], categories: Category[] }) => {
+  const loadOfflineData = (data: { items: Item[], catalogItems: CatalogItem[], vendors: Vendor[], locations: Location[], stocktakes: Stocktake[], categories: Category[] }) => {
 
     const normalizedItems = data.items.map(item => ({
       ...item,
@@ -3829,6 +3840,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }));
 
     setItems(normalizedItems);
+    setCatalogItems(data.catalogItems);
     setVendors(data.vendors);
 
     setLocations(data.locations.map(ensureLocationHumanId));
@@ -4998,6 +5010,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
 
+
+  const addCatalogItem = async (newCatalogItem: NewCatalogItem): Promise<CatalogItem> => {
+    const now = new Date().toISOString();
+    const normalizedName = (newCatalogItem.nameJa || '')
+      .normalize('NFKC')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const catalogItemWithId: CatalogItem = {
+      ...newCatalogItem,
+      id: `offline-catalog-${Date.now()}`,
+      normalizedName,
+      createdAt: now,
+      updatedAt: now,
+      thumbnailUrl: newCatalogItem.thumbnailUrl ?? newCatalogItem.mainImageUrl,
+    };
+
+    setCatalogItems(prev => [...prev, catalogItemWithId]);
+    return catalogItemWithId;
+  };
+
+  const updateCatalogItem = async (catalogItem: CatalogItem): Promise<void> => {
+    setCatalogItems(prev => prev.map(item => (item.id === catalogItem.id ? { ...catalogItem } : item)));
+  };
+
+  const deleteCatalogItem = async (catalogItemId: string): Promise<void> => {
+    setCatalogItems(prev => prev.filter(item => item.id !== catalogItemId));
+  };
 
   const updateItem = async (item: Item): Promise<void> => {
 
@@ -7211,6 +7252,7 @@ const updateLocation = async (locationId: string, data: Partial<NewLocation>): P
 
 
     setItems([]);
+    setCatalogItems([]);
     setVendors([]);
 
 
@@ -7947,7 +7989,7 @@ const updateLocation = async (locationId: string, data: Partial<NewLocation>): P
 
 
 
-        items, vendors, setVendors, locations, stocktakes, categories,
+        items, catalogItems, setCatalogItems, vendors, setVendors, locations, stocktakes, categories,
 
 
 
@@ -8077,6 +8119,9 @@ const updateLocation = async (locationId: string, data: Partial<NewLocation>): P
 
 
         addItem,
+        addCatalogItem,
+        updateCatalogItem,
+        deleteCatalogItem,
 
 
 

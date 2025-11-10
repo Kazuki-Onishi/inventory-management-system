@@ -1,7 +1,7 @@
 ﻿
 
 import React, { createContext, useState, useEffect, ReactNode, useContext } from 'react';
-import { User, Permission, Role, Store, Item, Location, Stocktake, Category, Vendor } from '../types';
+import { User, Permission, Role, Store, Item, CatalogItem, Location, Stocktake, Category, Vendor } from '../types';
 import { api } from '../services/api';
 import { OFFLINE_DATA } from '../data/offline';
 import { AppContext } from './AppContext';
@@ -60,8 +60,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const loadStoreData = async (stores: Store[]) => {
     try {
-      const [items, categories, vendors] = await Promise.all([
+      const [items, catalogItems, categories, vendors] = await Promise.all([
         api.fetchItems(),
+        api.fetchCatalogItems(),
         api.fetchCategories(),
         api.fetchVendors(),
       ]);
@@ -71,7 +72,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ]);
       const locations = locationsPerStore.flat();
       const stocktakes = stocktakesPerStore.flat();
-      loadOfflineData({ items, vendors, locations, stocktakes, categories });
+      loadOfflineData({ items, catalogItems, vendors, locations, stocktakes, categories });
     } catch (error) {
       console.error('Failed to load application data', error);
     }
@@ -139,7 +140,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isAdmin: isAdmin 
     };
     
-    const { stores: mockStores, items, vendors, locations, stocktakes, categories } = OFFLINE_DATA;
+    const { stores: mockStores, items, catalogItems, vendors, locations, stocktakes, categories } = OFFLINE_DATA;
 
     const mockPermissions: Permission[] = mockStores.map(store => ({
         id: `${userId}_${store.id}`,
@@ -153,7 +154,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setAccessibleStores(mockStores);
     setCurrentStore(mockStores[0]);
     setPermissions(mockPermissions);
-    loadOfflineData({ items, vendors, locations, stocktakes, categories });
+    loadOfflineData({ items, catalogItems, vendors, locations, stocktakes, categories });
     setIsOffline(true);
     setLoading(false);
   };

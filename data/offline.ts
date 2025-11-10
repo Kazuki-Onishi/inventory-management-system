@@ -1,5 +1,5 @@
 
-import { Store, Item, Location, Stocktake, Category, Vendor } from '../types';
+import { Store, Item, Location, Stocktake, Category, Vendor, CatalogItem } from '../types';
 
 const stores: Store[] = [
     { id: 'demo-gion', name: 'Demo Store: Kyoto Gion' },
@@ -88,6 +88,41 @@ const items: Item[] = [
 
     // Syrup Items
     { id: 'item-syrup-vanilla', name: 'シロップ（バニラ）', normalizedName: 'vanilla_syrup', shortName: 'バニラシロップ', description: '750mlボトル', costA: 700, costB: 800, sku: 'SYRP-001', isDiscontinued: false, nameEn: 'Syrup (Vanilla)', categoryId: 'cat-beverages' },
+];
+
+const catalogItems: CatalogItem[] = [
+    {
+        id: 'catalog-coldbrew',
+        nameJa: 'コールドブリューセット',
+        nameEn: 'Cold Brew Starter Kit',
+        nameZhHans: '冷萃咖啡套装',
+        nameZhHant: '冷萃咖啡組合',
+        nameKo: '콜드브루 스타터 키트',
+        descriptionJa: '水出しコーヒーを始めるための豆・ボトル・レシピのスターターキット。',
+        descriptionEn: 'Starter kit with beans, bottle, and recipe to brew cold brew coffee at home.',
+        skuOrTag: 'CAT-001',
+        mainImageUrl: 'https://via.placeholder.com/512x512.png?text=Cold+Brew',
+        thumbnailUrl: 'https://via.placeholder.com/256x256.png?text=Cold+Brew',
+        normalizedName: 'cold brew starter kit',
+        createdAt: '2024-01-05T10:00:00Z',
+        updatedAt: '2024-01-05T10:00:00Z',
+    },
+    {
+        id: 'catalog-matcha',
+        nameJa: '抹茶ラテセット',
+        nameEn: 'Matcha Latte Bundle',
+        nameZhHans: '抹茶拿铁组合',
+        nameZhHant: '抹茶拿鐵套組',
+        nameKo: '말차 라떼 번들',
+        descriptionJa: '宇治抹茶パウダーとフォーム用シロップのセット。ホットでもアイスでも。',
+        descriptionEn: 'Bundle with Uji matcha powder and syrup for hot or iced matcha lattes.',
+        skuOrTag: 'CAT-002',
+        mainImageUrl: 'https://via.placeholder.com/512x512.png?text=Matcha',
+        thumbnailUrl: 'https://via.placeholder.com/256x256.png?text=Matcha',
+        normalizedName: 'matcha latte bundle',
+        createdAt: '2024-01-10T09:00:00Z',
+        updatedAt: '2024-01-10T09:00:00Z',
+    },
 ];
 
 const locations: Location[] = [
@@ -187,6 +222,7 @@ export const OFFLINE_DATA = {
     categories,
     vendors,
     items,
+    catalogItems,
     locations,
     stocktakes,
 };

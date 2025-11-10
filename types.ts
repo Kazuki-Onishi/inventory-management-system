@@ -84,6 +84,25 @@ export interface Item {
 }
 export type NewItem = Omit<Item, 'id' | 'normalizedName'> & { humanId?: string };
 
+export interface CatalogItem {
+  id: string;
+  nameJa: string;
+  mainImageUrl: string;
+  skuOrTag?: string;
+  nameEn?: string;
+  nameZhHans?: string;
+  nameZhHant?: string;
+  nameKo?: string;
+  descriptionJa?: string;
+  descriptionEn?: string;
+  normalizedName: string;
+  createdAt: string;
+  updatedAt: string;
+  thumbnailUrl?: string | null;
+}
+
+export type NewCatalogItem = Omit<CatalogItem, 'id' | 'normalizedName' | 'createdAt' | 'updatedAt'>;
+
 
 export interface SubLocation {
   id: string;

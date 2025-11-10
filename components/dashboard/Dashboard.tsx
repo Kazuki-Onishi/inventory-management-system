@@ -34,6 +34,8 @@ type ItemAssignment = {
   storeName: string;
   location: { humanId: string; name: string };
   subLocation?: { humanId: string; name: string };
+  locationImageUrl?: string | null;
+  subLocationImageUrl?: string | null;
   count: number;
   countedAt: string | null;
 };
@@ -53,6 +55,8 @@ type LocationSearchResult = {
   storeName: string;
   location: { humanId: string; name: string; description?: string };
   subLocation?: { humanId: string; name: string; description?: string };
+  locationImageUrl?: string | null;
+  subLocationImageUrl?: string | null;
   latest?: { itemName: string; count: number; countedAt: string; description?: string };
 };
 
@@ -64,9 +68,11 @@ const Dashboard: React.FC = () => {
   const [searchScope, setSearchScope] = useState<SearchScope>('current');
   const shouldShowStoreInPath = searchScope === 'all';
   const [selectedItemDetail, setSelectedItemDetail] = useState<ItemSearchResult | null>(null);
+  const [selectedLocationDetail, setSelectedLocationDetail] = useState<LocationSearchResult | null>(null);
 
   useEffect(() => {
     setSelectedItemDetail(null);
+    setSelectedLocationDetail(null);
   }, [searchTerm, searchScope]);
 
   const stats = useMemo(() => {
@@ -139,6 +145,8 @@ const Dashboard: React.FC = () => {
           subLocation: subLocation
             ? { humanId: subLocation.humanId, name: subLocation.name }
             : undefined,
+          locationImageUrl: location.imageUrl ?? null,
+          subLocationImageUrl: subLocation?.imageUrl ?? null,
           count: stocktake.lastCount,
           countedAt: stocktake.lastCountedAt || null,
         });
@@ -234,6 +242,8 @@ const Dashboard: React.FC = () => {
               description: subLocation.description || undefined,
             }
           : undefined,
+        locationImageUrl: location.imageUrl ?? null,
+        subLocationImageUrl: subLocation?.imageUrl ?? null,
         latest: buildLatestEntry(location, subLocation),
       });
     };
@@ -430,7 +440,7 @@ const Dashboard: React.FC = () => {
               {hasLocationResults && (
                 <div className="space-y-2">
                   <h3 className="text-lg font-semibold">{t('dashboard.search.locationsTitle', { count: searchResults.locationResults.length })}</h3>
-                  <Table headers={[t('dashboard.search.store'), t('dashboard.search.locationPath'), t('dashboard.search.latestActivity')]}>
+                  <Table headers={[t('dashboard.search.store'), t('dashboard.search.locationPath'), t('dashboard.search.latestActivity'), t('common.actions')]}>
                     {searchResults.locationResults.map((result) => (
                       <TableRow key={result.id}>
                         <TableCell>{result.storeName}</TableCell>
@@ -471,6 +481,15 @@ const Dashboard: React.FC = () => {
                           ) : (
                             <span className="text-xs text-gray-500 dark:text-gray-400">{t('dashboard.search.latestActivity.none')}</span>
                           )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setSelectedLocationDetail(result)}
+                          >
+                            {t('dashboard.search.viewDetails')}
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -555,39 +574,200 @@ const Dashboard: React.FC = () => {
                 </p>
               ) : (
                 <ul className="space-y-2">
-                  {selectedItemDetail.assignments.map((assignment) => (
-                    <li key={`detail-${assignment.id}`} className="rounded-md border border-gray-200 dark:border-gray-700 p-3 text-sm text-gray-700 dark:text-gray-200">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {shouldShowStoreInPath && (
-                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                            {assignment.storeName}
-                          </span>
-                        )}
-                        <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs font-semibold uppercase tracking-wide text-gray-700 dark:bg-gray-700 dark:text-gray-200">
-                          [{assignment.location.humanId}]
-                        </span>
-                        <span>{assignment.location.name}</span>
-                        {assignment.subLocation && (
-                          <>
-                            <span className="text-gray-400 dark:text-gray-500">›</span>
-                            <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs font-semibold uppercase tracking-wide text-gray-700 dark:bg-gray-700 dark:text-gray-200">
-                              [{assignment.subLocation.humanId}]
-                            </span>
-                            <span>{assignment.subLocation.name}</span>
-                          </>
-                        )}
-                      </div>
-                      <div className="mt-1 text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
-                        <span>{t('dashboard.search.count')}: {assignment.count}</span>
-                        <span>
-                          {assignment.countedAt
-                            ? new Date(assignment.countedAt).toLocaleString()
-                            : t('dashboard.search.latestActivity.none')}
-                        </span>
-                      </div>
-                    </li>
-                  ))}
+                  {selectedItemDetail.assignments.map((assignment) => {
+                    const previewUrl = assignment.subLocationImageUrl ?? assignment.locationImageUrl;
+                    return (
+                      <li
+                        key={`detail-${assignment.id}`}
+                        className="rounded-md border border-gray-200 dark:border-gray-700 p-3 text-sm text-gray-700 dark:text-gray-200"
+                      >
+                        <div className="flex items-start gap-3">
+                          {previewUrl ? (
+                            <img
+                              src={previewUrl}
+                              alt={assignment.subLocation?.name || assignment.location.name}
+                              className="h-12 w-12 flex-shrink-0 rounded-md object-cover border border-gray-200 dark:border-gray-700"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-md border border-dashed border-gray-300 text-[10px] text-gray-500 dark:border-gray-600 dark:text-gray-400">
+                              {t('dashboard.search.itemDetails.noImage')}
+                            </div>
+                          )}
+                          <div className="flex-1 space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {shouldShowStoreInPath && (
+                                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                                  {assignment.storeName}
+                                </span>
+                              )}
+                              <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs font-semibold uppercase tracking-wide text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                [{assignment.location.humanId}]
+                              </span>
+                              <span>{assignment.location.name}</span>
+                              {assignment.subLocation && (
+                                <>
+                                  <span className="text-gray-400 dark:text-gray-500">›</span>
+                                  <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs font-semibold uppercase tracking-wide text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                    [{assignment.subLocation.humanId}]
+                                  </span>
+                                  <span>{assignment.subLocation.name}</span>
+                                </>
+                              )}
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
+                              <span>
+                                {t('dashboard.search.count')}: {assignment.count}
+                              </span>
+                              <span>
+                                {assignment.countedAt
+                                  ? new Date(assignment.countedAt).toLocaleString()
+                                  : t('dashboard.search.latestActivity.none')}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
+              )}
+            </section>
+          </div>
+        </Modal>
+      )}
+
+      {selectedLocationDetail && (
+        <Modal
+          isOpen={!!selectedLocationDetail}
+          onClose={() => setSelectedLocationDetail(null)}
+          title={t('dashboard.search.locationDetails.title', {
+            name: selectedLocationDetail.subLocation?.name || selectedLocationDetail.location.name,
+          })}
+          footer={(
+            <Button variant="secondary" onClick={() => setSelectedLocationDetail(null)}>
+              {t('common.close')}
+            </Button>
+          )}
+        >
+          <div className="space-y-6">
+            {selectedLocationDetail.subLocation ? (
+              <>
+                <section className="space-y-2">
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    {t('dashboard.search.locationDetails.subLocationImage', {
+                      name: selectedLocationDetail.subLocation.name,
+                    })}
+                  </h4>
+                  {selectedLocationDetail.subLocationImageUrl ? (
+                    <img
+                      src={selectedLocationDetail.subLocationImageUrl}
+                      alt={selectedLocationDetail.subLocation.name}
+                      className="max-h-64 w-full rounded-md object-cover border border-gray-200 dark:border-gray-700"
+                    />
+                  ) : (
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {t('dashboard.search.locationDetails.noImage')}
+                    </p>
+                  )}
+                </section>
+                <section className="space-y-2">
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    {t('dashboard.search.locationDetails.parentLocationImage', {
+                      name: selectedLocationDetail.location.name,
+                    })}
+                  </h4>
+                  {selectedLocationDetail.locationImageUrl ? (
+                    <img
+                      src={selectedLocationDetail.locationImageUrl}
+                      alt={selectedLocationDetail.location.name}
+                      className="max-h-64 w-full rounded-md object-cover border border-gray-200 dark:border-gray-700"
+                    />
+                  ) : (
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {t('dashboard.search.locationDetails.noImage')}
+                    </p>
+                  )}
+                </section>
+              </>
+            ) : (
+              <section className="space-y-2">
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  {t('dashboard.search.locationDetails.locationImage', {
+                    name: selectedLocationDetail.location.name,
+                  })}
+                </h4>
+                {selectedLocationDetail.locationImageUrl ? (
+                  <img
+                    src={selectedLocationDetail.locationImageUrl}
+                    alt={selectedLocationDetail.location.name}
+                    className="max-h-64 w-full rounded-md object-cover border border-gray-200 dark:border-gray-700"
+                  />
+                ) : (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {t('dashboard.search.locationDetails.noImage')}
+                  </p>
+                )}
+              </section>
+            )}
+
+            <section className="space-y-2">
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                {t('dashboard.search.locationDetails.info')}
+              </h4>
+              <dl className="grid grid-cols-[minmax(0,12rem)_1fr] gap-x-3 gap-y-2 text-sm text-gray-700 dark:text-gray-300">
+                <dt className="font-medium">{t('dashboard.search.store')}</dt>
+                <dd>{selectedLocationDetail.storeName}</dd>
+                <dt className="font-medium">{t('dashboard.search.location')}</dt>
+                <dd>
+                  <span className="font-mono mr-2">[{selectedLocationDetail.location.humanId}]</span>
+                  {selectedLocationDetail.location.name}
+                </dd>
+                {selectedLocationDetail.subLocation && (
+                  <>
+                    <dt className="font-medium">{t('dashboard.search.subLocation')}</dt>
+                    <dd>
+                      <span className="font-mono mr-2">[{selectedLocationDetail.subLocation.humanId}]</span>
+                      {selectedLocationDetail.subLocation.name}
+                    </dd>
+                  </>
+                )}
+              </dl>
+              {selectedLocationDetail.location.description && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {selectedLocationDetail.location.description}
+                </p>
+              )}
+              {selectedLocationDetail.subLocation?.description && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {selectedLocationDetail.subLocation.description}
+                </p>
+              )}
+            </section>
+
+            <section className="space-y-2">
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                {t('dashboard.search.locationDetails.latestActivity')}
+              </h4>
+              {selectedLocationDetail.latest ? (
+                <div className="rounded-md border border-gray-200 dark:border-gray-700 p-3 text-sm text-gray-700 dark:text-gray-300">
+                  <div>{new Date(selectedLocationDetail.latest.countedAt).toLocaleString()}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    {t('dashboard.search.latestActivity.item', {
+                      item: selectedLocationDetail.latest.itemName,
+                      count: selectedLocationDetail.latest.count,
+                    })}
+                  </div>
+                  {selectedLocationDetail.latest.description && (
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {selectedLocationDetail.latest.description}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {t('dashboard.search.latestActivity.none')}
+                </p>
               )}
             </section>
           </div>

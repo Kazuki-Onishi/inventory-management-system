@@ -17,6 +17,8 @@ interface ItemImageModalProps {
   showToast: (message: string, type?: 'success' | 'error') => void;
 }
 
+const REAR_CAMERA_CAPTURE = 'environment';
+
 const ItemImageModal: React.FC<ItemImageModalProps> = ({
   isOpen,
   item,
@@ -211,7 +213,7 @@ const ItemImageModal: React.FC<ItemImageModalProps> = ({
           ref={cameraInputRef}
           type="file"
           accept="image/*"
-          capture="environment"
+          capture={REAR_CAMERA_CAPTURE}
           className="hidden"
           onChange={handleFileChange}
           disabled={isOffline}
